@@ -1,0 +1,121 @@
+{
+  "projectType": "saas",
+  "projectName": "OmniEHR",
+  "projectDescription": "FHIR R4 and HIPAA-compliant Electronic Health Record system built with MERN stack",
+  "theme": "linden",
+  "primaryColor": "#2563eb",
+  "lightColor": "#60a5fa",
+  "darkColor": "#1e40af",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/patient-management",
+              "features/fhir-resources",
+              "features/scheduling",
+              "features/clinical-workflows",
+              "features/audit-logs"
+            ]
+          },
+          {
+            "group": "Security & Compliance",
+            "pages": [
+              "security/hipaa-overview",
+              "security/authentication",
+              "security/encryption",
+              "security/rbac"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/local-setup",
+              "deployment/environment-variables",
+              "deployment/production"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "api/overview",
+              "api/authentication"
+            ]
+          },
+          {
+            "group": "FHIR Endpoints",
+            "pages": [
+              "api/fhir/patient",
+              "api/fhir/observation",
+              "api/fhir/condition",
+              "api/fhir/allergy-intolerance",
+              "api/fhir/medication-request",
+              "api/fhir/encounter",
+              "api/fhir/appointment",
+              "api/fhir/task"
+            ]
+          },
+          {
+            "group": "Admin & Public",
+            "pages": [
+              "api/admin",
+              "api/public"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "FHIR R4 compliant APIs for healthcare data exchange",
+    "Role-based access control with admin, practitioner, and auditor roles",
+    "AES-256-GCM encryption for PHI data at rest",
+    "Patient self-registration portal with automatic PID assignment",
+    "Comprehensive scheduling system with conflict detection",
+    "Clinical command center for risk stratification and care gaps",
+    "Audit logging for all FHIR and admin operations",
+    "Care-team task management with assignment workflow"
+  ],
+  "publicApiSurface": [
+    "POST /api/auth/login",
+    "POST /api/public/patient-register",
+    "GET /api/fhir/metadata",
+    "POST /api/fhir/Patient",
+    "GET /api/fhir/Patient",
+    "GET /api/fhir/Patient/:id",
+    "PUT /api/fhir/Patient/:id",
+    "GET /api/fhir/Patient/:id/$everything",
+    "POST /api/fhir/Observation",
+    "GET /api/fhir/Observation",
+    "POST /api/fhir/Condition",
+    "GET /api/fhir/Condition",
+    "POST /api/fhir/AllergyIntolerance",
+    "GET /api/fhir/AllergyIntolerance",
+    "POST /api/fhir/MedicationRequest",
+    "GET /api/fhir/MedicationRequest",
+    "POST /api/fhir/Encounter",
+    "GET /api/fhir/Encounter",
+    "POST /api/fhir/Appointment",
+    "GET /api/fhir/Appointment",
+    "POST /api/fhir/Task",
+    "GET /api/fhir/Task",
+    "POST /api/admin/users",
+    "GET /api/admin/practitioners",
+    "GET /api/admin/audit"
+  ]
+}
