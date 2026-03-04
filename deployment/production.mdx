@@ -1,0 +1,1136 @@
+---
+title: 'Production Deployment'
+description: 'Guide for deploying OmniEHR to production with security hardening and best practices'
+---
+
+## Overview
+
+Deploying OmniEHR to production requires careful attention to security, reliability, and compliance. This guide covers production-ready deployment configurations, infrastructure recommendations, and HIPAA-aligned security hardening.
+
+<Warning>
+  **HIPAA Compliance Notice:** This codebase implements technical safeguards (access control, encryption, audit trails), but HIPAA compliance requires more than code. You must also implement:
+  - Business Associate Agreements (BAAs)
+  - Policies and procedures
+  - Risk assessments
+  - Incident response plans
+  - Staff training
+  - Secure infrastructure operations
+</Warning>
+
+## Pre-Deployment Checklist
+
+Before deploying to production, ensure you have:
+
+- [ ] Generated strong, unique secrets for all environment variables
+- [ ] Set up secure secrets management (AWS Secrets Manager, HashiCorp Vault, etc.)
+- [ ] Configured MongoDB with authentication, TLS, and backups
+- [ ] Obtained SSL/TLS certificates for HTTPS
+- [ ] Set up monitoring and alerting
+- [ ] Configured audit log retention and SIEM integration
+- [ ] Prepared incident response procedures
+- [ ] Reviewed and signed BAAs with all service providers
+- [ ] Conducted security assessment and penetration testing
+- [ ] Set up backup and disaster recovery procedures
+
+## Infrastructure Requirements
+
+### Minimum Production Requirements
+
+**Server:**
+- Node.js v18+ runtime
+- 2 GB RAM minimum (4+ GB recommended)
+- 2 CPU cores minimum
+- 20 GB disk space for application and logs
+
+**Database:**
+- MongoDB 7.0+
+- 4 GB RAM minimum (8+ GB recommended)
+- 2 CPU cores minimum
+- SSD storage with automatic backups
+- Replica set for high availability (3+ nodes)
+
+**Network:**
+- TLS 1.2+ for all connections
+- Firewall rules limiting access to necessary ports only
+- DDoS protection
+- CDN for static assets (optional)
+
+### Recommended Architecture
+
+```
+                                  ┌─────────────────┐
+                                  │   CloudFront    │
+                                  │   or CDN        │
+                                  └────────┬────────┘
+                                           │
+                                           │ HTTPS
+                                           │
+                                  ┌────────▼────────┐
+                                  │  Load Balancer  │
+                                  │   (ALB/NLB)     │
+                                  └────────┬────────┘
+                                           │
+                        ┌──────────────────┼──────────────────┐
+                        │                  │                  │
+               ┌────────▼────────┐┌────────▼────────┐┌────────▼────────┐
+               │   API Server    ││   API Server    ││   API Server    │
+               │   (Node.js)     ││   (Node.js)     ││   (Node.js)     │
+               └────────┬────────┘└────────┬────────┘└────────┬────────┘
+                        │                  │                  │
+                        └──────────────────┼──────────────────┘
+                                           │
+                                  ┌────────▼────────┐
+                                  │   MongoDB       │
+                                  │   Replica Set   │
+                                  │   (3+ nodes)    │
+                                  └─────────────────┘
+```
+
+**Key components:**
+- **CDN/CloudFront**: Serve static client assets with caching
+- **Load Balancer**: Distribute traffic across multiple API servers
+- **API Servers**: Multiple Node.js instances for redundancy
+- **MongoDB Replica Set**: High availability database cluster
+
+## Deployment Options
+
+### Option 1: Platform as a Service (PaaS)
+
+Quickest deployment with managed infrastructure.
+
+<Tabs>
+  <Tab title="Render">
+    **Pros:**
+    - Automatic HTTPS
+    - Easy MongoDB integration
+    - Built-in monitoring
+    - Free tier available
+
+    **Setup:**
+
+    <Steps>
+      <Step title="Create MongoDB instance">
+        Use Render's managed MongoDB or connect to MongoDB Atlas
+      </Step>
+
+      <Step title="Deploy server">
+        ```yaml render.yaml
+        services:
+          - type: web
+            name: omniehr-api
+            env: node
+            buildCommand: npm install --workspace server
+            startCommand: npm run start --workspace server
+            envVars:
+              - key: NODE_ENV
+                value: production
+              - key: PORT
+                value: 4000
+              - key: MONGODB_URI
+                sync: false
+              - key: JWT_SECRET
+                generateValue: true
+              - key: JWT_EXPIRES_IN
+                value: 1h
+              - key: PHI_ENCRYPTION_KEY
+                sync: false
+              - key: CORS_ORIGIN
+                value: https://your-frontend-url.vercel.app
+        ```
+      </Step>
+
+      <Step title="Deploy client">
+        Deploy to Vercel, Netlify, or Render static site
+        
+        Set `VITE_API_BASE_URL` to your Render API URL
+      </Step>
+    </Steps>
+
+    <Info>
+      Current production deployment uses Render for API (https://omniehr.onrender.com) and Vercel for client (https://omni-ehr.vercel.app)
+    </Info>
+  </Tab>
+
+  <Tab title="Vercel + MongoDB Atlas">
+    **Pros:**
+    - Excellent frontend performance
+    - Global CDN
+    - Automatic preview deployments
+    - Generous free tier
+
+    **Setup:**
+
+    <Steps>
+      <Step title="Set up MongoDB Atlas">
+        1. Create cluster at mongodb.com/cloud/atlas
+        2. Enable authentication
+        3. Add IP whitelist (0.0.0.0/0 for Vercel, or use PrivateLink)
+        4. Create database user
+        5. Get connection string
+      </Step>
+
+      <Step title="Deploy API to Vercel">
+        ```json vercel.json
+        {
+          "buildCommand": "npm install --workspace server",
+          "outputDirectory": "server",
+          "installCommand": "npm install",
+          "framework": null,
+          "rewrites": [
+            {
+              "source": "/api/(.*)",
+              "destination": "server/src/server.js"
+            }
+          ]
+        }
+        ```
+
+        Set environment variables in Vercel dashboard
+      </Step>
+
+      <Step title="Deploy client to Vercel">
+        1. Connect GitHub repository
+        2. Set root directory to `client`
+        3. Set `VITE_API_BASE_URL` environment variable
+        4. Deploy
+      </Step>
+    </Steps>
+
+    <Warning>
+      Vercel Serverless Functions have execution time limits (10s for Hobby, 60s for Pro). For long-running operations, consider deploying API separately.
+    </Warning>
+  </Tab>
+
+  <Tab title="AWS">
+    **Pros:**
+    - Full control over infrastructure
+    - HIPAA-eligible services
+    - Advanced security features (KMS, CloudHSM, etc.)
+    - Scalable architecture
+
+    **Setup:**
+
+    <Steps>
+      <Step title="Set up DocumentDB or MongoDB Atlas">
+        **DocumentDB (MongoDB-compatible):**
+        ```bash
+        aws docdb create-db-cluster \
+          --db-cluster-identifier omniehr-docdb \
+          --engine docdb \
+          --master-username admin \
+          --master-user-password <strong-password> \
+          --vpc-security-group-ids sg-xxxx \
+          --db-subnet-group-name default \
+          --storage-encrypted \
+          --kms-key-id <kms-key-id>
+        ```
+
+        Enable TLS and backup retention.
+      </Step>
+
+      <Step title="Deploy API to ECS or Elastic Beanstalk">
+        **ECS with Fargate:**
+        ```dockerfile Dockerfile
+        FROM node:18-alpine
+        WORKDIR /app
+        COPY server/package*.json ./
+        RUN npm ci --only=production
+        COPY server/ ./
+        EXPOSE 4000
+        CMD ["node", "src/server.js"]
+        ```
+
+        Push to ECR and create ECS service
+      </Step>
+
+      <Step title="Deploy client to S3 + CloudFront">
+        ```bash
+        # Build client
+        npm run build --workspace client
+
+        # Upload to S3
+        aws s3 sync client/dist s3://omniehr-frontend
+
+        # Invalidate CloudFront cache
+        aws cloudfront create-invalidation \
+          --distribution-id E1234567890ABC \
+          --paths "/*"
+        ```
+      </Step>
+
+      <Step title="Configure secrets in AWS Secrets Manager">
+        ```bash
+        aws secretsmanager create-secret \
+          --name omniehr/prod/jwt-secret \
+          --secret-string "$(openssl rand -base64 32)"
+
+        aws secretsmanager create-secret \
+          --name omniehr/prod/phi-encryption-key \
+          --secret-string "$(openssl rand -hex 32)"
+        ```
+
+        Update ECS task definition to inject secrets
+      </Step>
+    </Steps>
+  </Tab>
+</Tabs>
+
+### Option 2: Self-Hosted (VPS/Bare Metal)
+
+Full control but requires more operational expertise.
+
+<Steps>
+  <Step title="Provision server">
+    Use Ubuntu 22.04 LTS or similar. Harden OS:
+    
+    ```bash
+    # Update system
+    sudo apt update && sudo apt upgrade -y
+
+    # Install Node.js 18
+    curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+    sudo apt install -y nodejs
+
+    # Install MongoDB
+    wget -qO - https://www.mongodb.org/static/pgp/server-7.0.asc | sudo apt-key add -
+    echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list
+    sudo apt update
+    sudo apt install -y mongodb-org
+
+    # Install nginx
+    sudo apt install -y nginx certbot python3-certbot-nginx
+
+    # Install PM2 for process management
+    sudo npm install -g pm2
+    ```
+  </Step>
+
+  <Step title="Configure MongoDB">
+    Edit `/etc/mongod.conf`:
+    
+    ```yaml
+    net:
+      port: 27017
+      bindIp: 127.0.0.1
+      tls:
+        mode: requireTLS
+        certificateKeyFile: /etc/ssl/mongodb.pem
+
+    security:
+      authorization: enabled
+
+    storage:
+      dbPath: /var/lib/mongodb
+      journal:
+        enabled: true
+      engine: wiredTiger
+      wiredTiger:
+        engineConfig:
+          cacheSizeGB: 2
+
+    systemLog:
+      destination: file
+      path: /var/log/mongodb/mongod.log
+      logAppend: true
+    ```
+
+    Create admin user:
+    ```javascript
+    mongosh
+    use admin
+    db.createUser({
+      user: "admin",
+      pwd: "strong-password-here",
+      roles: ["userAdminAnyDatabase", "dbAdminAnyDatabase", "readWriteAnyDatabase"]
+    })
+    ```
+  </Step>
+
+  <Step title="Deploy application">
+    ```bash
+    # Clone repository
+    git clone <repo-url> /opt/omniehr
+    cd /opt/omniehr
+
+    # Install dependencies
+    npm install
+
+    # Create production .env
+    sudo nano server/.env
+    # (Add all production variables)
+
+    # Start with PM2
+    pm2 start server/src/server.js --name omniehr-api
+    pm2 save
+    pm2 startup
+    ```
+  </Step>
+
+  <Step title="Configure nginx reverse proxy">
+    ```nginx /etc/nginx/sites-available/omniehr
+    server {
+        listen 80;
+        server_name api.omniehr.com;
+        return 301 https://$server_name$request_uri;
+    }
+
+    server {
+        listen 443 ssl http2;
+        server_name api.omniehr.com;
+
+        ssl_certificate /etc/letsencrypt/live/api.omniehr.com/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/api.omniehr.com/privkey.pem;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers HIGH:!aNULL:!MD5;
+
+        location / {
+            proxy_pass http://127.0.0.1:4000;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection 'upgrade';
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_cache_bypass $http_upgrade;
+        }
+    }
+    ```
+
+    Enable and restart:
+    ```bash
+    sudo ln -s /etc/nginx/sites-available/omniehr /etc/nginx/sites-enabled/
+    sudo certbot --nginx -d api.omniehr.com
+    sudo systemctl restart nginx
+    ```
+  </Step>
+</Steps>
+
+## Security Hardening
+
+### 1. Environment Variables & Secrets Management
+
+<Warning>
+  Never store secrets in `.env` files in production. Use a secrets management service.
+</Warning>
+
+**Best practices:**
+
+<CodeGroup>
+
+```bash AWS Secrets Manager
+# Store secrets
+aws secretsmanager create-secret \
+  --name omniehr/prod/env \
+  --secret-string '{"JWT_SECRET":"...","PHI_ENCRYPTION_KEY":"..."}'
+
+# Retrieve in application startup
+const secrets = JSON.parse(
+  await secretsManager.getSecretValue({SecretId: 'omniehr/prod/env'}).promise()
+);
+```
+
+```bash HashiCorp Vault
+# Store secrets
+vault kv put secret/omniehr/prod \
+  jwt_secret="..." \
+  phi_encryption_key="..."
+
+# Retrieve in application
+const secrets = await vault.read('secret/omniehr/prod');
+```
+
+```bash Environment Variables (Platform)
+# Set in platform UI or CLI
+heroku config:set JWT_SECRET="..."
+vercel env add JWT_SECRET production
+render env set JWT_SECRET "..."
+```
+
+</CodeGroup>
+
+### 2. Database Security
+
+**MongoDB hardening checklist:**
+
+- [ ] Enable authentication (`security.authorization: enabled`)
+- [ ] Use TLS for all connections (`net.tls.mode: requireTLS`)
+- [ ] Create least-privilege users (separate users for app, backup, monitoring)
+- [ ] Enable audit logging for HIPAA compliance
+- [ ] Restrict network access (bind to private IP, use VPC)
+- [ ] Enable encryption at rest (MongoDB Enterprise or cloud provider encryption)
+- [ ] Set up automated backups with encryption
+- [ ] Configure replica set for high availability
+- [ ] Monitor slow queries and set up alerts
+- [ ] Regularly update MongoDB to latest stable version
+
+**Example production connection string:**
+
+```bash
+MONGODB_URI=mongodb://app-user:STRONG_PASSWORD@node1.internal:27017,node2.internal:27017,node3.internal:27017/ehr?replicaSet=rs0&authSource=admin&tls=true&tlsCAFile=/path/to/ca.pem
+```
+
+### 3. Application Security
+
+OmniEHR includes several security features out of the box:
+
+**Implemented in `server/src/app.js`:**
+
+```javascript
+// Helmet: Sets secure HTTP headers
+app.use(helmet());
+
+// CORS: Restricts origins
+app.use(cors({
+  origin: env.corsOrigin,
+  credentials: true
+}));
+
+// Rate limiting: Prevents brute force
+app.use("/api/auth", rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100 // 100 requests per window
+}));
+
+// JSON limit: Prevents large payload attacks
+app.use(express.json({ limit: "1mb" }));
+
+// Request logging: Audit trail
+app.use(morgan("combined"));
+
+// Audit middleware: Logs all FHIR/admin operations
+app.use(requestAuditTrail);
+```
+
+**Additional hardening recommendations:**
+
+<Steps>
+  <Step title="Enable HTTPS only">
+    Enforce HTTPS at load balancer or reverse proxy level
+    
+    ```javascript
+    // Redirect HTTP to HTTPS
+    app.use((req, res, next) => {
+      if (req.header('x-forwarded-proto') !== 'https' && env.nodeEnv === 'production') {
+        return res.redirect(`https://${req.header('host')}${req.url}`);
+      }
+      next();
+    });
+    ```
+  </Step>
+
+  <Step title="Implement token refresh & rotation">
+    Current implementation uses long-lived access tokens. For production:
+    
+    - Reduce `JWT_EXPIRES_IN` to 15-60 minutes
+    - Implement refresh token flow
+    - Store refresh tokens in database with ability to revoke
+    - Rotate refresh tokens on each use
+  </Step>
+
+  <Step title="Add MFA for admin users">
+    Implement TOTP-based two-factor authentication:
+    
+    - Use `otplib` or `speakeasy` library
+    - Store MFA secret encrypted per user
+    - Require MFA for admin and auditor roles
+    - Provide backup codes
+  </Step>
+
+  <Step title="Implement session management">
+    - Store active sessions in Redis
+    - Allow users to view and revoke sessions
+    - Implement session timeout (absolute and idle)
+    - Clear sessions on password change
+  </Step>
+
+  <Step title="Add request signing for critical operations">
+    For destructive operations (delete, update PHI):
+    
+    - Require re-authentication
+    - Implement request signing
+    - Log all changes with before/after state
+  </Step>
+</Steps>
+
+### 4. PHI Encryption & Key Management
+
+Current implementation uses application-level encryption (AES-256-GCM) in `server/src/services/cryptoService.js`.
+
+**Production enhancements:**
+
+<Tabs>
+  <Tab title="Key Management Service (KMS)">
+    Use cloud provider KMS for key encryption keys:
+
+    ```javascript
+    import { KMSClient, DecryptCommand } from "@aws-sdk/client-kms";
+
+    // Encrypted PHI_ENCRYPTION_KEY in environment
+    const encryptedKey = process.env.ENCRYPTED_PHI_KEY;
+
+    // Decrypt with KMS
+    const kms = new KMSClient({ region: "us-east-1" });
+    const { Plaintext } = await kms.send(new DecryptCommand({
+      CiphertextBlob: Buffer.from(encryptedKey, 'base64')
+    }));
+
+    const phiKey = Buffer.from(Plaintext);
+    ```
+
+    **Benefits:**
+    - Key never stored in plaintext
+    - Audit trail for key usage
+    - Automatic key rotation
+    - HSM-backed security (FIPS 140-2 Level 3)
+  </Tab>
+
+  <Tab title="Hardware Security Module (HSM)">
+    For highest security (HIPAA Security Rule compliant):
+
+    - Use AWS CloudHSM or on-premise HSM
+    - Store PHI encryption keys in HSM
+    - Encrypt/decrypt operations happen in HSM
+    - Keys never leave HSM boundary
+
+    ```javascript
+    import { CloudHSMClient } from "@aws-sdk/client-cloudhsm";
+
+    const hsm = new CloudHSMClient();
+    
+    // Encryption happens in HSM
+    const encrypted = await hsm.encrypt({
+      KeyId: "phi-encryption-key",
+      Plaintext: phiData
+    });
+    ```
+  </Tab>
+
+  <Tab title="Key Rotation Strategy">
+    Implement key rotation without downtime:
+
+    <Steps>
+      <Step title="Generate new key">
+        Create new encryption key (KEY_V2)
+      </Step>
+
+      <Step title="Deploy with both keys">
+        ```javascript
+        const keys = {
+          v1: process.env.PHI_ENCRYPTION_KEY_V1,
+          v2: process.env.PHI_ENCRYPTION_KEY_V2
+        };
+
+        const currentVersion = "v2";
+
+        export const encryptPhi = (plaintext) => {
+          // Always use current version
+          const key = keys[currentVersion];
+          // ... encryption with version tag
+        };
+
+        export const decryptPhi = (encrypted) => {
+          // Decrypt with versioned key
+          const key = keys[encrypted.keyVersion || "v1"];
+          // ... decryption
+        };
+        ```
+      </Step>
+
+      <Step title="Re-encrypt data">
+        Background job to re-encrypt with new key:
+        
+        ```javascript
+        async function rotateEncryption() {
+          const patients = await Patient.find({});
+          
+          for (const patient of patients) {
+            // Decrypt with old key
+            const decrypted = decryptPhi(patient.demographics.givenName);
+            // Re-encrypt with new key
+            patient.demographics.givenName = encryptPhi(decrypted);
+            await patient.save();
+          }
+        }
+        ```
+      </Step>
+
+      <Step title="Remove old key">
+        After all data re-encrypted, remove KEY_V1
+      </Step>
+    </Steps>
+  </Tab>
+</Tabs>
+
+### 5. Audit Logging & SIEM Integration
+
+OmniEHR logs all FHIR and admin operations via `requestAuditTrail` middleware.
+
+**Current implementation** (`server/src/middleware/audit.js`):
+- Logs to MongoDB `AuditEvent` collection
+- Captures: user, action, resource, timestamp, IP address
+- Available for review in admin UI
+
+**Production enhancements:**
+
+<Steps>
+  <Step title="Immutable audit logs">
+    Send audit events to immutable storage:
+
+    ```javascript
+    import AWS from 'aws-sdk';
+    const s3 = new AWS.S3();
+
+    export const auditToS3 = async (event) => {
+      await s3.putObject({
+        Bucket: 'omniehr-audit-logs',
+        Key: `audit/${new Date().toISOString()}/${event.id}.json`,
+        Body: JSON.stringify(event),
+        ServerSideEncryption: 'aws:kms'
+      }).promise();
+    };
+    ```
+  </Step>
+
+  <Step title="SIEM integration">
+    Forward logs to Security Information and Event Management:
+
+    **Splunk:**
+    ```javascript
+    import SplunkLogger from 'splunk-logging';
+
+    const logger = new SplunkLogger({
+      token: process.env.SPLUNK_TOKEN,
+      url: process.env.SPLUNK_URL
+    });
+
+    logger.send({
+      message: auditEvent,
+      severity: 'info',
+      source: 'omniehr-api'
+    });
+    ```
+
+    **AWS CloudWatch:**
+    ```javascript
+    import { CloudWatchLogsClient } from '@aws-sdk/client-cloudwatch-logs';
+
+    const cloudwatch = new CloudWatchLogsClient();
+    // Send audit events to CloudWatch Logs
+    ```
+  </Step>
+
+  <Step title="Set up alerts">
+    Monitor for suspicious activity:
+
+    - Failed authentication attempts (>5 in 5 minutes)
+    - Access to PHI outside business hours
+    - Bulk data exports
+    - Privilege escalation attempts
+    - Database schema changes
+    - Unusual geographic access patterns
+  </Step>
+
+  <Step title="Retain logs per compliance requirements">
+    HIPAA requires 6-year retention:
+
+    - Archive to S3 Glacier after 90 days
+    - Set lifecycle policies for automatic archival
+    - Encrypt all archived logs
+    - Test restoration procedures quarterly
+  </Step>
+</Steps>
+
+### 6. Network Security
+
+**Firewall rules:**
+
+```bash
+# Allow HTTPS from anywhere
+sudo ufw allow 443/tcp
+
+# Allow SSH from specific IP only
+sudo ufw allow from 203.0.113.0/24 to any port 22
+
+# Deny MongoDB from public internet
+sudo ufw deny 27017/tcp
+
+# Enable firewall
+sudo ufw enable
+```
+
+**VPC configuration (AWS example):**
+
+- API servers in private subnets
+- MongoDB in isolated subnets (no internet access)
+- Load balancer in public subnets
+- NAT gateway for outbound API calls
+- VPC endpoints for AWS services
+
+## Monitoring & Observability
+
+### Application Monitoring
+
+<CodeGroup>
+
+```javascript Health Check Endpoint
+// Already implemented in server/src/app.js
+app.get("/api/health", (_req, res) => {
+  res.json({ 
+    status: "ok", 
+    timestamp: new Date().toISOString() 
+  });
+});
+
+// Enhanced health check
+app.get("/api/health/detailed", async (req, res) => {
+  const health = {
+    status: "ok",
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    mongodb: await checkMongoHealth(),
+    memory: process.memoryUsage(),
+    version: process.env.APP_VERSION
+  };
+  res.json(health);
+});
+```
+
+```javascript Error Tracking (Sentry)
+import * as Sentry from "@sentry/node";
+
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  environment: env.nodeEnv,
+  tracesSampleRate: 0.1
+});
+
+// In error handler
+Sentry.captureException(error);
+```
+
+```javascript APM (New Relic)
+import newrelic from 'newrelic';
+
+// Custom metrics
+newrelic.recordMetric('PHI/Decryption/Duration', decryptionTime);
+newrelic.incrementMetric('FHIR/Patient/Create');
+```
+
+</CodeGroup>
+
+### Key Metrics to Monitor
+
+| Metric | Threshold | Alert |
+|--------|-----------|-------|
+| API response time (p95) | >500ms | Warning |
+| API response time (p99) | >1000ms | Critical |
+| Error rate | >1% | Warning |
+| Error rate | >5% | Critical |
+| MongoDB connection pool | >80% used | Warning |
+| Memory usage | >85% | Warning |
+| Disk usage | >80% | Warning |
+| Failed auth attempts | >10/min | Security alert |
+| Concurrent users | Baseline +300% | Capacity alert |
+
+### Log Aggregation
+
+Centralize logs from all servers:
+
+```javascript Winston + CloudWatch
+import winston from 'winston';
+import CloudWatchTransport from 'winston-cloudwatch';
+
+const logger = winston.createLogger({
+  transports: [
+    new winston.transports.Console(),
+    new CloudWatchTransport({
+      logGroupName: '/aws/omniehr/api',
+      logStreamName: `${process.env.INSTANCE_ID}`,
+      awsRegion: 'us-east-1'
+    })
+  ]
+});
+
+logger.info('Patient created', { patientId, userId });
+```
+
+## Backup & Disaster Recovery
+
+### Database Backups
+
+<Steps>
+  <Step title="Automated backups">
+    **MongoDB Atlas:** Enable continuous backups (point-in-time recovery)
+
+    **Self-hosted:**
+    ```bash
+    # Daily backup script
+    #!/bin/bash
+    DATE=$(date +%Y%m%d_%H%M%S)
+    mongodump --uri="mongodb://backup-user:password@localhost:27017/ehr" \
+      --archive="/backup/ehr_$DATE.archive" \
+      --gzip
+
+    # Encrypt backup
+    openssl enc -aes-256-cbc -salt -in "/backup/ehr_$DATE.archive" \
+      -out "/backup/ehr_$DATE.archive.enc" \
+      -k "$BACKUP_ENCRYPTION_KEY"
+
+    # Upload to S3
+    aws s3 cp "/backup/ehr_$DATE.archive.enc" \
+      s3://omniehr-backups/mongodb/
+
+    # Clean up local files
+    rm "/backup/ehr_$DATE.archive"*
+    ```
+
+    Schedule with cron: `0 2 * * * /opt/scripts/backup.sh`
+  </Step>
+
+  <Step title="Test restoration">
+    Quarterly DR drill:
+
+    ```bash
+    # Download backup
+    aws s3 cp s3://omniehr-backups/mongodb/ehr_20260304.archive.enc /tmp/
+
+    # Decrypt
+    openssl enc -aes-256-cbc -d -in /tmp/ehr_20260304.archive.enc \
+      -out /tmp/ehr_20260304.archive -k "$BACKUP_ENCRYPTION_KEY"
+
+    # Restore to test database
+    mongorestore --uri="mongodb://localhost:27017/ehr_test" \
+      --archive=/tmp/ehr_20260304.archive --gzip
+
+    # Verify data integrity
+    # ...
+    ```
+  </Step>
+
+  <Step title="Retention policy">
+    - Daily backups: 30 days
+    - Weekly backups: 12 weeks
+    - Monthly backups: 7 years (HIPAA requirement)
+    - Implement with S3 lifecycle policies
+  </Step>
+</Steps>
+
+### Application Deployment Rollback
+
+Always maintain ability to rollback:
+
+```bash
+# Tag releases
+git tag -a v1.2.3 -m "Release v1.2.3"
+git push origin v1.2.3
+
+# Deploy specific version
+git checkout v1.2.3
+npm install
+pm2 restart omniehr-api
+
+# Or use PM2 ecosystem file
+module.exports = {
+  apps: [{
+    name: 'omniehr-api',
+    script: 'server/src/server.js',
+    instances: 'max',
+    exec_mode: 'cluster',
+    env: {
+      NODE_ENV: 'production'
+    }
+  }]
+};
+```
+
+## Compliance & Certification
+
+### HIPAA Technical Safeguards Checklist
+
+**Implemented in code:**
+
+- [x] Access control (authentication & authorization)
+- [x] Audit controls (comprehensive logging)
+- [x] Integrity controls (input validation with Zod)
+- [x] Transmission security (HTTPS/TLS)
+- [x] Encryption at rest (AES-256-GCM for PHI fields)
+
+**Required operational controls:**
+
+- [ ] Business Associate Agreements with all vendors
+- [ ] Risk assessment (annually)
+- [ ] Security policies and procedures
+- [ ] Workforce training (annually)
+- [ ] Incident response plan
+- [ ] Contingency plan (disaster recovery)
+- [ ] Access controls (least privilege)
+- [ ] Facility access controls
+- [ ] Workstation security
+- [ ] Device and media controls
+
+### Security Assessment
+
+Before going live:
+
+<Steps>
+  <Step title="Vulnerability scanning">
+    ```bash
+    # Dependency vulnerabilities
+    npm audit
+    npm audit fix
+
+    # Container scanning (if using Docker)
+    docker scan omniehr-api:latest
+
+    # Web vulnerability scanning
+    # Use tools like OWASP ZAP, Burp Suite
+    ```
+  </Step>
+
+  <Step title="Penetration testing">
+    Hire professional pentesters to assess:
+    - Authentication bypass
+    - Authorization flaws
+    - Injection vulnerabilities
+    - PHI data leakage
+    - Session management
+    - API security
+  </Step>
+
+  <Step title="Code review">
+    Security-focused code review:
+    - Encryption implementation
+    - Authentication logic
+    - Authorization checks
+    - Input validation
+    - Error handling (no info disclosure)
+    - Audit logging completeness
+  </Step>
+
+  <Step title="Compliance audit">
+    Third-party HIPAA compliance audit
+  </Step>
+</Steps>
+
+## Post-Deployment
+
+### Day 1 Checklist
+
+- [ ] Verify all services are running
+- [ ] Test login and basic workflows
+- [ ] Confirm audit logs are being created
+- [ ] Check monitoring dashboards
+- [ ] Set up alerting contacts
+- [ ] Document deployment details
+- [ ] Share runbook with on-call team
+
+### Ongoing Operations
+
+**Weekly:**
+- Review audit logs for anomalies
+- Check system performance metrics
+- Review and triage error reports
+
+**Monthly:**
+- Review and rotate access credentials
+- Update dependencies (`npm update`)
+- Test backup restoration
+- Security patch assessment
+
+**Quarterly:**
+- Disaster recovery drill
+- Security assessment
+- Access audit (remove former employees)
+- Review and update incident response plan
+
+**Annually:**
+- HIPAA risk assessment
+- Penetration testing
+- Staff security training
+- Policy and procedure review
+- Certificate renewal (SSL/TLS)
+
+## Troubleshooting Production Issues
+
+### High CPU Usage
+
+```bash
+# Check Node.js process
+pm2 monit
+
+# CPU profiling
+node --prof server/src/server.js
+
+# Analyze profile
+node --prof-process isolate-*.log
+```
+
+**Common causes:**
+- Inefficient database queries (missing indexes)
+- Encryption/decryption in tight loops
+- Memory leaks causing GC thrashing
+
+### Memory Leaks
+
+```bash
+# Check memory usage
+pm2 monit
+
+# Generate heap snapshot
+node --heapsnapshot-signal=SIGUSR2 server/src/server.js
+
+# Trigger snapshot
+kill -SIGUSR2 <pid>
+
+# Analyze with Chrome DevTools
+```
+
+### Database Connection Issues
+
+```bash
+# Check MongoDB status
+mongosh --eval "db.adminCommand('ping')"
+
+# Check connection pool
+mongosh --eval "db.serverStatus().connections"
+
+# Review connection string
+echo $MONGODB_URI
+```
+
+### API Errors
+
+```bash
+# View logs
+pm2 logs omniehr-api --lines 100
+
+# Filter errors
+pm2 logs omniehr-api --err
+
+# Follow logs
+pm2 logs omniehr-api --lines 0
+```
+
+## Additional Resources
+
+<CardGroup cols={2}>
+  <Card title="Environment Variables" icon="gear" href="/deployment/environment-variables">
+    Complete environment variable reference
+  </Card>
+  <Card title="Local Setup" icon="laptop-code" href="/deployment/local-setup">
+    Development environment setup
+  </Card>
+  <Card title="Security Architecture" icon="shield" href="/security/hipaa-overview">
+    HIPAA-aligned security controls
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/overview">
+    FHIR R4 API documentation
+  </Card>
+</CardGroup>
+
+---
+
+<Info>
+  For questions about production deployment, security best practices, or compliance requirements, consult with qualified healthcare IT security professionals and legal counsel.
+</Info>

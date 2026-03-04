@@ -1,0 +1,295 @@
+---
+title: Patient Resource
+description: FHIR R4 Patient resource endpoints for patient demographics and registry
+---
+
+The Patient resource represents individuals receiving healthcare services. OmniEHR implements full CRUD operations with encrypted PHI fields and automatic PID assignment.
+
+## Endpoints
+
+### Create Patient
+
+<Note>
+  Only users with the **admin** role can create Patient resources. Practitioners and auditors have read-only access.
+</Note>
+
+```http
+POST /api/fhir/Patient
+Authorization: Bearer {token}
+Content-Type: application/json
+```
+
+<ParamField body="resourceType" type="string" required>
+  Must be `"Patient"`
+</ParamField>
+
+<ParamField body="identifier" type="array">
+  Patient identifiers. System automatically assigns a 7-digit PID.
+</ParamField>
+
+<ParamField body="name" type="array" required>
+  Patient name(s) with `given` and `family` fields. Stored encrypted.
+</ParamField>
+
+<ParamField body="gender" type="string" required>
+  Administrative gender: `male`, `female`, `other`, or `unknown`
+</ParamField>
+
+<ParamField body="birthDate" type="string">
+  Birth date in YYYY-MM-DD format
+</ParamField>
+
+<ParamField body="telecom" type="array">
+  Contact details (phone, email). Values are encrypted at rest.
+</ParamField>
+
+<ParamField body="address" type="array">
+  Patient addresses. All fields encrypted (line, city, state, postalCode).
+</ParamField>
+
+<ParamField body="active" type="boolean">
+  Whether the patient record is active. Defaults to `true`.
+</ParamField>
+
+#### Example Request
+
+```bash cURL
+curl -X POST https://api.example.com/api/fhir/Patient \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "resourceType": "Patient",
+    "active": true,
+    "name": [{
+      "use": "official",
+      "family": "Doe",
+      "given": ["Jane"]
+    }],
+    "gender": "female",
+    "birthDate": "1990-05-15",
+    "telecom": [
+      {
+        "system": "phone",
+        "value": "+1-555-0123",
+        "use": "home"
+      },
+      {
+        "system": "email",
+        "value": "jane.doe@example.com"
+      }
+    ],
+    "address": [{
+      "use": "home",
+      "line": ["123 Main St"],
+      "city": "Springfield",
+      "state": "IL",
+      "postalCode": "62701"
+    }]
+  }'
+```
+
+#### Response
+
+<ResponseField name="resourceType" type="string">
+  Returns `"Patient"`
+</ResponseField>
+
+<ResponseField name="id" type="string">
+  MongoDB ObjectId for the patient
+</ResponseField>
+
+<ResponseField name="identifier" type="array">
+  Includes system-assigned PID in format `PAT-1234567`
+</ResponseField>
+
+```json Example Response
+{
+  "resourceType": "Patient",
+  "id": "65f1234567890abcdef12345",
+  "identifier": [
+    {
+      "system": "http://example.org/fhir/patient-id",
+      "value": "PAT-1234567"
+    }
+  ],
+  "active": true,
+  "name": [{
+    "use": "official",
+    "family": "Doe",
+    "given": ["Jane"]
+  }],
+  "gender": "female",
+  "birthDate": "1990-05-15",
+  "telecom": [
+    {
+      "system": "phone",
+      "value": "+1-555-0123",
+      "use": "home"
+    },
+    {
+      "system": "email",
+      "value": "jane.doe@example.com"
+    }
+  ],
+  "address": [{
+    "use": "home",
+    "line": ["123 Main St"],
+    "city": "Springfield",
+    "state": "IL",
+    "postalCode": "62701"
+  }]
+}
+```
+
+---
+
+### List Patients
+
+```http
+GET /api/fhir/Patient
+Authorization: Bearer {token}
+```
+
+<ParamField query="_count" type="number">
+  Number of results per page (default: 20, max: 100)
+</ParamField>
+
+<ParamField query="_offset" type="number">
+  Starting offset for pagination (default: 0)
+</ParamField>
+
+#### Example Request
+
+```bash
+curl -X GET "https://api.example.com/api/fhir/Patient?_count=10&_offset=0" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+#### Response
+
+Returns a FHIR Bundle with `type: "searchset"`
+
+```json
+{
+  "resourceType": "Bundle",
+  "type": "searchset",
+  "total": 42,
+  "entry": [
+    {
+      "resource": {
+        "resourceType": "Patient",
+        "id": "65f1234567890abcdef12345",
+        "identifier": [{
+          "system": "http://example.org/fhir/patient-id",
+          "value": "PAT-1234567"
+        }],
+        "name": [{
+          "family": "Doe",
+          "given": ["Jane"]
+        }],
+        "gender": "female"
+      }
+    }
+  ]
+}
+```
+
+---
+
+### Get Patient by ID
+
+```http
+GET /api/fhir/Patient/:id
+Authorization: Bearer {token}
+```
+
+#### Example Request
+
+```bash
+curl -X GET https://api.example.com/api/fhir/Patient/65f1234567890abcdef12345 \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+---
+
+### Update Patient
+
+<Note>
+  Only **admin** role can update Patient resources.
+</Note>
+
+```http
+PUT /api/fhir/Patient/:id
+Authorization: Bearer {token}
+Content-Type: application/json
+```
+
+Send the complete updated Patient resource in the request body.
+
+---
+
+### Get Patient Everything
+
+Retrieve a patient's complete longitudinal record including all related resources.
+
+```http
+GET /api/fhir/Patient/:id/$everything
+Authorization: Bearer {token}
+```
+
+#### Response
+
+Returns a Bundle containing:
+- Patient resource
+- All Observations
+- All Conditions
+- All AllergyIntolerances
+- All MedicationRequests
+- All Encounters
+- All Appointments
+- All Tasks
+
+```bash Example
+curl -X GET https://api.example.com/api/fhir/Patient/65f1234567890abcdef12345/\$everything \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+---
+
+## PHI Encryption
+
+<Warning>
+  The following Patient fields are encrypted at rest using AES-256-GCM:
+  - `name[].given`
+  - `name[].family`
+  - `telecom[].value` (phone, email)
+  - `address[].line`
+  - `address[].city`
+  - `address[].state`
+  - `address[].postalCode`
+</Warning>
+
+## Role Permissions
+
+| Role | Create | Read | Update | Delete |
+|------|--------|------|--------|--------|
+| Admin | ✅ | ✅ | ✅ | ❌ |
+| Practitioner | ❌ | ✅ | ❌ | ❌ |
+| Auditor | ❌ | ✅ | ❌ | ❌ |
+
+## Related Resources
+
+<CardGroup cols={2}>
+  <Card title="Observation" icon="chart-line" href="/api/fhir/observation">
+    Clinical observations linked to patients
+  </Card>
+  <Card title="Condition" icon="heart-pulse" href="/api/fhir/condition">
+    Patient conditions and diagnoses
+  </Card>
+  <Card title="Encounter" icon="stethoscope" href="/api/fhir/encounter">
+    Clinical encounters for patients
+  </Card>
+  <Card title="Appointment" icon="calendar-check" href="/api/fhir/appointment">
+    Patient appointments
+  </Card>
+</CardGroup>

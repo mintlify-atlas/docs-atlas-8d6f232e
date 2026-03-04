@@ -1,0 +1,547 @@
+---
+title: 'Environment Variables'
+description: 'Complete reference for all environment variables in OmniEHR'
+---
+
+## Overview
+
+OmniEHR uses environment variables for configuration across server and client applications. This page documents all available variables, their purposes, and validation rules.
+
+## Server Environment Variables
+
+Server environment variables are defined in `server/.env` and loaded via the `dotenv` package.
+
+### Required Variables
+
+These variables **must** be set or the server will fail to start with an error message.
+
+<Info>
+  The server validates required environment variables on startup in `server/src/config/env.js`.
+</Info>
+
+#### NODE_ENV
+
+<ParamField path="NODE_ENV" type="string" required>
+  Application environment mode
+</ParamField>
+
+**Accepted values:**
+- `development` - Local development with verbose logging
+- `production` - Production deployment with optimized settings
+- `test` - Testing environment
+
+**Example:**
+```bash
+NODE_ENV=development
+```
+
+**Impact:**
+- Controls logging verbosity
+- Affects error message detail in API responses
+- Used by Express for optimizations
+
+---
+
+#### PORT
+
+<ParamField path="PORT" type="number" required>
+  Port number for the API server to listen on
+</ParamField>
+
+**Default:** `4000`
+
+**Example:**
+```bash
+PORT=4000
+```
+
+**Notes:**
+- Must be a valid port number (1-65535)
+- Ensure the port is not already in use
+- In production, consider using standard ports (80/443) with reverse proxy
+
+---
+
+#### MONGODB_URI
+
+<ParamField path="MONGODB_URI" type="string" required>
+  MongoDB connection string
+</ParamField>
+
+**Format:** `mongodb://[username:password@]host[:port]/database[?options]`
+
+**Examples:**
+
+<CodeGroup>
+
+```bash Local (Docker)
+MONGODB_URI=mongodb://127.0.0.1:27017/ehr
+```
+
+```bash MongoDB Atlas
+MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/ehr?retryWrites=true&w=majority
+```
+
+```bash Replica Set
+MONGODB_URI=mongodb://host1:27017,host2:27017,host3:27017/ehr?replicaSet=rs0
+```
+
+</CodeGroup>
+
+**Notes:**
+- Used by Mongoose to connect to MongoDB
+- Connection happens in `server/src/config/db.js`
+- For production, use authentication and TLS
+- Set `strictQuery: true` for schema validation
+
+<Warning>
+  Never commit real MongoDB credentials to version control. Use secrets management in production.
+</Warning>
+
+---
+
+#### JWT_SECRET
+
+<ParamField path="JWT_SECRET" type="string" required>
+  Secret key for signing and verifying JWT access tokens
+</ParamField>
+
+**Requirements:**
+- Long random string (minimum 32 characters recommended)
+- High entropy for security
+- Must remain constant across server restarts
+
+**Generate a secure secret:**
+```bash
+openssl rand -base64 32
+```
+
+**Example:**
+```bash
+JWT_SECRET=your-super-secret-jwt-key-here-change-in-production
+```
+
+**Security notes:**
+- Used by `jsonwebtoken` library in `server/src/utils/jwt.js`
+- Changing this will invalidate all existing tokens
+- Store securely in production (AWS Secrets Manager, HashiCorp Vault, etc.)
+- Never expose in client-side code or logs
+
+<Warning>
+  Compromising the JWT_SECRET allows attackers to forge authentication tokens. Treat this as a critical secret.
+</Warning>
+
+---
+
+#### JWT_EXPIRES_IN
+
+<ParamField path="JWT_EXPIRES_IN" type="string" required>
+  Token expiration time for JWT access tokens
+</ParamField>
+
+**Format:** [zeit/ms](https://github.com/vercel/ms) format string
+
+**Examples:**
+- `60` - 60 milliseconds
+- `2m` - 2 minutes
+- `8h` - 8 hours (recommended for development)
+- `1d` - 1 day
+- `7d` - 7 days
+
+**Default:**
+```bash
+JWT_EXPIRES_IN=8h
+```
+
+**Considerations:**
+- Shorter expiration = better security, more frequent re-authentication
+- Longer expiration = better UX, higher risk if token is compromised
+- For production, consider 15-60 minutes with refresh token rotation
+- Balance security requirements with user experience
+
+---
+
+#### PHI_ENCRYPTION_KEY
+
+<ParamField path="PHI_ENCRYPTION_KEY" type="string" required>
+  256-bit AES encryption key for protecting PHI (Protected Health Information)
+</ParamField>
+
+**Requirements:**
+- Exactly 64 hexadecimal characters (32 bytes)
+- Used for AES-256-GCM encryption
+- Must remain constant or encrypted data becomes unrecoverable
+
+**Generate the key:**
+```bash
+openssl rand -hex 32
+```
+
+**Example:**
+```bash
+PHI_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+```
+
+**What gets encrypted:**
+- Patient name (givenName, familyName)
+- Contact information (phone, email)
+- Address (line1, city, state, postalCode)
+
+**Encryption details:**
+- Algorithm: AES-256-GCM (Galois/Counter Mode)
+- Implementation: `server/src/services/cryptoService.js`
+- Each field stores: `{ iv, authTag, content }` for authenticated encryption
+- Random IV per encryption operation
+
+<Warning>
+  **CRITICAL:** Losing this key means permanent loss of encrypted patient data. Implement robust key management:
+  - Use Hardware Security Module (HSM) or Key Management Service (KMS) in production
+  - Maintain encrypted backups of the key
+  - Document key rotation procedures
+  - Never commit to version control
+</Warning>
+
+**Validation:**
+
+The server validates the key on startup:
+
+```javascript server/src/services/cryptoService.js
+const key = Buffer.from(env.phiEncryptionKey, "hex");
+
+if (key.length !== 32) {
+  throw new Error("PHI_ENCRYPTION_KEY must be a 64-char hex string (32 bytes)");
+}
+```
+
+---
+
+### Optional Variables
+
+#### CORS_ORIGIN
+
+<ParamField path="CORS_ORIGIN" type="string" optional>
+  Allowed origin for CORS requests
+</ParamField>
+
+**Default:** `http://localhost:5173`
+
+**Examples:**
+
+<CodeGroup>
+
+```bash Local Development
+CORS_ORIGIN=http://localhost:5173
+```
+
+```bash Production
+CORS_ORIGIN=https://omni-ehr.vercel.app
+```
+
+```bash Multiple Origins (requires code change)
+# Current implementation supports single origin
+# For multiple origins, modify server/src/app.js
+CORS_ORIGIN=https://app.example.com
+```
+
+</CodeGroup>
+
+**Configuration in code:**
+
+```javascript server/src/app.js
+app.use(
+  cors({
+    origin: env.corsOrigin,
+    credentials: true
+  })
+);
+```
+
+**Notes:**
+- Set to your frontend URL to allow API requests
+- Must include protocol (`http://` or `https://`)
+- For production, use exact domain (no wildcards for credentialed requests)
+- Credentials are enabled for cookie-based authentication
+
+---
+
+## Client Environment Variables
+
+Client environment variables are defined in `client/.env` and embedded into the build by Vite.
+
+<Info>
+  Vite only exposes environment variables prefixed with `VITE_` to the client bundle. This prevents accidentally exposing secrets.
+</Info>
+
+### VITE_API_BASE_URL
+
+<ParamField path="VITE_API_BASE_URL" type="string" required>
+  Base URL for API requests from the frontend
+</ParamField>
+
+**Format:** `{protocol}://{host}:{port}/api`
+
+**Examples:**
+
+<CodeGroup>
+
+```bash Local Development
+VITE_API_BASE_URL=http://localhost:4000/api
+```
+
+```bash Production
+VITE_API_BASE_URL=https://omniehr.onrender.com/api
+```
+
+```bash Custom Port
+VITE_API_BASE_URL=http://localhost:3000/api
+```
+
+</CodeGroup>
+
+**Notes:**
+- Must end with `/api` to match server route prefix
+- Include protocol and port for local development
+- Use HTTPS in production
+- Changes require rebuild (`npm run build`)
+
+**Usage in code:**
+
+```javascript client/src/api/client.js
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+
+fetch(`${API_BASE_URL}/fhir/Patient`, {
+  headers: {
+    Authorization: `Bearer ${token}`
+  }
+});
+```
+
+---
+
+## Environment Variable Loading
+
+### Server
+
+The server uses the `dotenv` package to load variables:
+
+```javascript server/src/config/env.js
+import dotenv from "dotenv";
+
+dotenv.config(); // Loads from server/.env
+
+const required = [
+  "NODE_ENV",
+  "PORT",
+  "MONGODB_URI",
+  "JWT_SECRET",
+  "JWT_EXPIRES_IN",
+  "PHI_ENCRYPTION_KEY"
+];
+
+// Validation
+for (const key of required) {
+  if (!process.env[key]) {
+    throw new Error(`Missing required environment variable: ${key}`);
+  }
+}
+
+// Export typed config object
+const env = {
+  nodeEnv: process.env.NODE_ENV,
+  port: Number(process.env.PORT),
+  mongoUri: process.env.MONGODB_URI,
+  jwtSecret: process.env.JWT_SECRET,
+  jwtExpiresIn: process.env.JWT_EXPIRES_IN,
+  phiEncryptionKey: process.env.PHI_ENCRYPTION_KEY,
+  corsOrigin: process.env.CORS_ORIGIN || "http://localhost:5173"
+};
+
+export default env;
+```
+
+**Key features:**
+- Validates all required variables on startup
+- Provides type conversion (e.g., PORT to number)
+- Exports a clean config object for use throughout the app
+- Fails fast if configuration is invalid
+
+### Client
+
+Vite automatically loads `.env` files and exposes `VITE_*` variables:
+
+```javascript
+// Access in client code
+const apiUrl = import.meta.env.VITE_API_BASE_URL;
+```
+
+**Vite environment priority:**
+1. `.env.[mode].local` (e.g., `.env.production.local`)
+2. `.env.[mode]` (e.g., `.env.production`)
+3. `.env.local`
+4. `.env`
+
+---
+
+## Security Best Practices
+
+### Never Commit Secrets
+
+Add to `.gitignore`:
+```
+.env
+.env.local
+.env.*.local
+```
+
+Commit only `.env.example` files with dummy values.
+
+### Use Secrets Management in Production
+
+<CardGroup cols={2}>
+  <Card title="AWS Secrets Manager" icon="aws">
+    Store and rotate secrets automatically
+  </Card>
+  <Card title="HashiCorp Vault" icon="vault">
+    Centralized secrets and encryption
+  </Card>
+  <Card title="Environment Variables" icon="server">
+    Use platform-provided env vars (Heroku, Vercel, etc.)
+  </Card>
+  <Card title="Encrypted Files" icon="lock">
+    Encrypt .env files with SOPS or git-crypt
+  </Card>
+</CardGroup>
+
+### Rotate Secrets Regularly
+
+<Steps>
+  <Step title="Generate new secret">
+    Create new JWT_SECRET or PHI_ENCRYPTION_KEY
+  </Step>
+  
+  <Step title="Update application config">
+    Deploy with both old and new secrets for transition period
+  </Step>
+  
+  <Step title="Migrate data if needed">
+    Re-encrypt PHI with new key (requires custom migration script)
+  </Step>
+  
+  <Step title="Remove old secret">
+    After grace period, deploy with only new secret
+  </Step>
+</Steps>
+
+### Validate Input
+
+<Info>
+  OmniEHR validates all environment variables on startup. Never skip validation in production.
+</Info>
+
+---
+
+## Example Configuration Files
+
+### Development
+
+<CodeGroup>
+
+```bash server/.env (Development)
+NODE_ENV=development
+PORT=4000
+MONGODB_URI=mongodb://127.0.0.1:27017/ehr
+JWT_SECRET=dev-secret-change-in-production-use-openssl-rand
+JWT_EXPIRES_IN=8h
+PHI_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+CORS_ORIGIN=http://localhost:5173
+```
+
+```bash client/.env (Development)
+VITE_API_BASE_URL=http://localhost:4000/api
+```
+
+</CodeGroup>
+
+### Production
+
+<CodeGroup>
+
+```bash server/.env (Production)
+NODE_ENV=production
+PORT=4000
+MONGODB_URI=mongodb+srv://prod-user:STRONG_PASSWORD@cluster.mongodb.net/ehr?retryWrites=true&w=majority&tls=true
+JWT_SECRET=<USE_SECRETS_MANAGER>
+JWT_EXPIRES_IN=1h
+PHI_ENCRYPTION_KEY=<USE_HSM_OR_KMS>
+CORS_ORIGIN=https://omni-ehr.vercel.app
+```
+
+```bash client/.env (Production)
+VITE_API_BASE_URL=https://omniehr.onrender.com/api
+```
+
+</CodeGroup>
+
+<Warning>
+  The production examples above show where to use secrets management. Never hardcode production secrets in .env files.
+</Warning>
+
+---
+
+## Troubleshooting
+
+### "Missing required environment variable"
+
+**Cause:** A required variable is not set in `server/.env`
+
+**Solution:**
+1. Check that `server/.env` exists
+2. Verify all required variables are present
+3. Ensure no typos in variable names
+4. Restart the server after changes
+
+### "PHI_ENCRYPTION_KEY must be a 64-char hex string"
+
+**Cause:** The encryption key is invalid
+
+**Solution:**
+1. Generate new key: `openssl rand -hex 32`
+2. Copy exactly 64 hex characters
+3. No spaces, quotes, or line breaks
+4. Paste into `server/.env`
+
+### Client can't reach API
+
+**Cause:** `VITE_API_BASE_URL` is incorrect
+
+**Solution:**
+1. Verify API server is running
+2. Check `VITE_API_BASE_URL` matches server URL
+3. Include `/api` suffix
+4. Rebuild client: `npm run build --workspace client`
+5. Check CORS_ORIGIN on server matches client origin
+
+### Environment variables not updating
+
+**Server:** Restart the dev server (`Ctrl+C` then `npm run dev`)
+
+**Client:** Vite requires restart and rebuild for env var changes
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Local Setup" icon="laptop-code" href="/deployment/local-setup">
+    Complete local development setup guide
+  </Card>
+  <Card title="Production Deployment" icon="rocket" href="/deployment/production">
+    Deploy to production with security hardening
+  </Card>
+  <Card title="Security Architecture" icon="shield" href="/security/hipaa-overview">
+    Learn about HIPAA-aligned security controls
+  </Card>
+  <Card title="Database Configuration" icon="database" href="/features/fhir-resources">
+    MongoDB setup and encryption
+  </Card>
+</CardGroup>

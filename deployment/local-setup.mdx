@@ -1,0 +1,393 @@
+---
+title: 'Local Development Setup'
+description: 'Complete guide to setting up OmniEHR for local development with Docker'
+---
+
+## Overview
+
+This guide walks you through setting up OmniEHR on your local machine using Docker for MongoDB and npm workspaces for the application.
+
+## Prerequisites
+
+Before you begin, ensure you have the following installed:
+
+- **Node.js** v18 or higher
+- **npm** v9 or higher
+- **Docker** and Docker Compose
+- **OpenSSL** (for generating encryption keys)
+
+## Quick Start
+
+For experienced developers, here's the quick setup:
+
+<Steps>
+  <Step title="Clone and install">
+    ```bash
+    git clone <repository-url>
+    cd omniehr
+    npm install
+    ```
+  </Step>
+
+  <Step title="Start MongoDB">
+    ```bash
+    docker compose up -d
+    ```
+  </Step>
+
+  <Step title="Configure environment">
+    ```bash
+    cp server/.env.example server/.env
+    cp client/.env.example client/.env
+    # Edit server/.env with generated keys
+    ```
+  </Step>
+
+  <Step title="Run the application">
+    ```bash
+    npm run dev
+    ```
+  </Step>
+</Steps>
+
+## Detailed Setup Instructions
+
+### Step 1: Install Dependencies
+
+OmniEHR uses npm workspaces to manage the monorepo structure with separate `server` and `client` packages.
+
+```bash
+npm install
+```
+
+This command installs dependencies for both the server and client workspaces.
+
+<Info>
+  The project uses Node.js ES modules (`"type": "module"`) throughout. Make sure your Node.js version supports ESM.
+</Info>
+
+### Step 2: Start MongoDB with Docker
+
+OmniEHR requires MongoDB 7 for data persistence. The included `docker-compose.yml` provides a pre-configured MongoDB instance.
+
+```bash
+docker compose up -d
+```
+
+**Docker Compose Configuration:**
+
+```yaml docker-compose.yml
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: ehr
+    volumes:
+      - mongo_data:/data/db
+
+volumes:
+  mongo_data:
+```
+
+**Key features:**
+- Uses MongoDB 7 official image
+- Exposes port 27017 on localhost
+- Creates `ehr` database automatically
+- Persists data in Docker volume `mongo_data`
+- Restarts automatically unless manually stopped
+
+<Info>
+  MongoDB data persists across container restarts in the `mongo_data` Docker volume.
+</Info>
+
+**Verify MongoDB is running:**
+
+```bash
+docker ps
+```
+
+You should see the `mongo:7` container running.
+
+**Alternative: Use Existing MongoDB**
+
+If you have an existing MongoDB instance, skip the Docker step and update `MONGODB_URI` in your `.env` file to point to your instance.
+
+### Step 3: Configure Environment Variables
+
+Create environment files from the provided examples:
+
+```bash
+cp server/.env.example server/.env
+cp client/.env.example client/.env
+```
+
+#### Generate PHI Encryption Key
+
+<Warning>
+  The `PHI_ENCRYPTION_KEY` is critical for encrypting patient data. Generate a secure random key and keep it safe. Losing this key means losing access to encrypted patient data.
+</Warning>
+
+Generate a 256-bit encryption key (64 hexadecimal characters):
+
+```bash
+openssl rand -hex 32
+```
+
+Copy the output and paste it into `server/.env` as the `PHI_ENCRYPTION_KEY` value.
+
+#### Server Environment Variables
+
+Edit `server/.env`:
+
+```bash server/.env
+NODE_ENV=development
+PORT=4000
+MONGODB_URI=mongodb://127.0.0.1:27017/ehr
+JWT_SECRET=change-me-to-a-long-random-secret
+JWT_EXPIRES_IN=8h
+PHI_ENCRYPTION_KEY=<your-generated-key-here>
+CORS_ORIGIN=http://localhost:5173
+```
+
+<Info>
+  For local development, uncomment and use `CORS_ORIGIN=http://localhost:5173` to allow the Vite dev server to communicate with the API.
+</Info>
+
+**Important notes:**
+- Generate a strong random string for `JWT_SECRET` (use `openssl rand -base64 32`)
+- Use the 64-character hex key from earlier for `PHI_ENCRYPTION_KEY`
+- Set `CORS_ORIGIN` to match your client URL (default Vite port is 5173)
+
+#### Client Environment Variables
+
+Edit `client/.env`:
+
+```bash client/.env
+VITE_API_BASE_URL=http://localhost:4000/api
+```
+
+This tells the frontend where to find the API server.
+
+### Step 4: Run the Application
+
+<CodeGroup>
+
+```bash Run both server and client
+npm run dev
+```
+
+```bash Run server only
+npm run dev:server
+```
+
+```bash Run client only
+npm run dev:client
+```
+
+</CodeGroup>
+
+The `npm run dev` command starts both the server and client concurrently:
+- **API Server**: http://localhost:4000
+- **Client UI**: http://localhost:5173
+
+**What's running:**
+- Server uses `nodemon` for hot-reloading on code changes
+- Client uses Vite dev server with HMR (Hot Module Replacement)
+
+### Step 5: Verify Installation
+
+#### Check API Health
+
+```bash
+curl http://localhost:4000/api/health
+```
+
+Expected response:
+```json
+{
+  "status": "ok",
+  "timestamp": "2026-03-04T..."
+}
+```
+
+#### Access the UI
+
+Open http://localhost:5173 in your browser. You should see the OmniEHR login page.
+
+#### Test Login
+
+<Info>
+  On first run, you'll need to create an initial admin user. The application includes seed data or you can use the patient registration portal to test public endpoints.
+</Info>
+
+**Demo credentials** (if using seed data):
+
+<CodeGroup>
+
+```text Admin
+Email: admin@omnihealth.com
+Password: Abcdefgh@998761
+```
+
+```text Practitioner
+Email: drsonal@omnihealth.com
+Password: Abcdefgh@998761
+```
+
+</CodeGroup>
+
+## Development Workflow
+
+### Available Scripts
+
+From the project root:
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Run both server and client in development mode |
+| `npm run dev:server` | Run only the server with nodemon |
+| `npm run dev:client` | Run only the client with Vite |
+| `npm run start` | Start the server in production mode |
+| `npm run lint` | Run ESLint on both server and client |
+
+### Server Scripts
+
+From the `server/` directory:
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start server with nodemon (auto-reload) |
+| `npm run start` | Start server without auto-reload |
+| `npm run lint` | Run ESLint on server code |
+
+### Client Scripts
+
+From the `client/` directory:
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start Vite dev server with HMR |
+| `npm run build` | Build client for production |
+| `npm run preview` | Preview production build locally |
+| `npm run lint` | Run ESLint on client code |
+
+## Project Structure
+
+```
+omniehr/
+├── server/              # Backend Express application
+│   ├── src/
+│   │   ├── config/      # Environment and database config
+│   │   ├── middleware/  # Auth, audit, error handling
+│   │   ├── models/      # Mongoose models
+│   │   ├── routes/      # API routes
+│   │   ├── services/    # Business logic & encryption
+│   │   ├── utils/       # JWT, error utilities
+│   │   ├── app.js       # Express app configuration
+│   │   └── server.js    # Server entry point
+│   ├── .env.example
+│   └── package.json
+├── client/              # Frontend React application
+│   ├── src/
+│   ├── .env.example
+│   └── package.json
+├── docker-compose.yml   # MongoDB container config
+└── package.json         # Root workspace config
+```
+
+## Database Management
+
+### Access MongoDB Shell
+
+```bash
+docker exec -it <container-id> mongosh
+```
+
+Find the container ID with `docker ps`.
+
+### View Database Contents
+
+```javascript
+use ehr
+show collections
+db.patients.find().pretty()
+```
+
+### Reset Database
+
+<Warning>
+  This will delete all data. Only do this in development.
+</Warning>
+
+```bash
+docker compose down -v
+docker compose up -d
+```
+
+The `-v` flag removes volumes, deleting all database data.
+
+## Troubleshooting
+
+### Port Already in Use
+
+If port 4000 or 5173 is already in use:
+
+**Server:** Change `PORT` in `server/.env`
+
+**Client:** Vite will automatically try the next available port (5174, 5175, etc.)
+
+### MongoDB Connection Failed
+
+Verify MongoDB is running:
+```bash
+docker ps
+```
+
+Check logs:
+```bash
+docker logs <container-id>
+```
+
+Ensure `MONGODB_URI` in `server/.env` matches your MongoDB connection string.
+
+### Environment Variables Not Loading
+
+Make sure:
+1. `.env` files exist in `server/` and `client/` directories (not in root)
+2. For client variables, prefix with `VITE_`
+3. Restart the dev servers after changing environment variables
+
+### Module Not Found Errors
+
+Run `npm install` again from the root directory:
+```bash
+npm install
+```
+
+### Encryption Key Error
+
+If you see "PHI_ENCRYPTION_KEY must be a 64-char hex string":
+
+1. Generate a new key: `openssl rand -hex 32`
+2. Ensure it's exactly 64 hexadecimal characters
+3. No spaces or line breaks in the value
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Environment Variables" icon="gear" href="/deployment/environment-variables">
+    Learn about all available configuration options
+  </Card>
+  <Card title="FHIR API Reference" icon="code" href="/api/overview">
+    Explore the FHIR R4 API endpoints
+  </Card>
+  <Card title="Security Features" icon="shield" href="/security/hipaa-overview">
+    Understand HIPAA-aligned security controls
+  </Card>
+  <Card title="Production Deployment" icon="rocket" href="/deployment/production">
+    Deploy to production environments
+  </Card>
+</CardGroup>

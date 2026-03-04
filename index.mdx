@@ -1,97 +1,209 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: OmniEHR Documentation
+description: FHIR R4 and HIPAA-compliant Electronic Health Record system
+mode: custom
 ---
 
-## Setting up
+<div className="relative overflow-hidden bg-gradient-to-br from-[#2563eb] via-[#1e40af] to-[#1e3a8a] dark:from-[#1e40af] dark:via-[#1e3a8a] dark:to-[#172554] py-20">
+  <div className="max-w-6xl mx-auto px-6 lg:px-8">
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+      <div className="lg:col-span-7">
+        <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-white mb-6">
+          Welcome to OmniEHR Documentation
+        </h1>
+        <p className="text-lg sm:text-xl text-blue-100 mb-8 max-w-2xl">
+          Build FHIR-compliant healthcare applications with enterprise-grade security. Complete EHR solution with patient management, clinical workflows, and comprehensive audit controls.
+        </p>
+        <div className="flex flex-wrap gap-4">
+          <a 
+            href="/quickstart" 
+            className="inline-flex items-center px-6 py-3 bg-white text-[#2563eb] font-semibold rounded-lg hover:bg-blue-50 transition-colors no-underline"
+          >
+            Get Started
+            <svg className="ml-2 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+            </svg>
+          </a>
+          <a 
+            href="/api/overview" 
+            className="inline-flex items-center px-6 py-3 border-2 border-white/30 bg-white/10 text-white font-semibold rounded-lg hover:bg-white/20 transition-colors no-underline"
+          >
+            API Reference
+          </a>
+        </div>
+      </div>
+      <div className="lg:col-span-5 hidden lg:block">
+        <div className="relative">
+          <div className="absolute inset-0 bg-blue-400/20 blur-3xl rounded-full"></div>
+          <div className="relative bg-white/10 backdrop-blur-sm rounded-2xl p-8 border border-white/20">
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-3 h-3 rounded-full bg-green-400"></div>
+                <span className="text-white text-sm font-mono">FHIR R4 Compliant</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="w-3 h-3 rounded-full bg-blue-400"></div>
+                <span className="text-white text-sm font-mono">HIPAA-Aligned Controls</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="w-3 h-3 rounded-full bg-purple-400"></div>
+                <span className="text-white text-sm font-mono">AES-256-GCM Encryption</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="w-3 h-3 rounded-full bg-yellow-400"></div>
+                <span className="text-white text-sm font-mono">Role-Based Access Control</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 
-Get your documentation site up and running in minutes.
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-white mb-4">
+    Quick Start
+  </h2>
+  <p className="text-base text-gray-600 dark:text-gray-400 mb-8">
+    Get OmniEHR running locally in minutes
+  </p>
+  
+  <Steps>
+    <Step title="Clone and install dependencies">
+      Clone the repository and install all dependencies using npm workspaces.
+      
+      ```bash
+      git clone https://github.com/amankiit/OmniEHR.git
+      cd OmniEHR
+      npm install
+      ```
+    </Step>
+    
+    <Step title="Start MongoDB">
+      Launch MongoDB using Docker Compose or point to your existing instance.
+      
+      ```bash
+      docker compose up -d
+      ```
+      
+      <Note>
+        By default, MongoDB will be available at `mongodb://localhost:27017/ehr`
+      </Note>
+    </Step>
+    
+    <Step title="Configure environment variables">
+      Copy the example environment files and generate your encryption key.
+      
+      ```bash
+      cp server/.env.example server/.env
+      cp client/.env.example client/.env
+      openssl rand -hex 32
+      ```
+      
+      Set the `PHI_ENCRYPTION_KEY` in `server/.env` with the generated 64-character hex string.
+    </Step>
+    
+    <Step title="Start the application">
+      Run both the API server and frontend client in development mode.
+      
+      ```bash
+      npm run dev
+      ```
+      
+      <Accordion title="Expected output">
+        - API server: `http://localhost:4000`
+        - Frontend client: `http://localhost:5173`
+      </Accordion>
+    </Step>
+  </Steps>
+</div>
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-white mb-4">
+    Core Features
+  </h2>
+  <p className="text-base text-gray-600 dark:text-gray-400 mb-8">
+    Everything you need to build a compliant healthcare application
+  </p>
+  
+  <CardGroup cols={2}>
+    <Card title="Patient Management" icon="user-doctor" href="/features/patient-management">
+      Comprehensive patient registry with encrypted demographics and automatic PID assignment
+    </Card>
+    <Card title="FHIR Resources" icon="file-medical" href="/features/fhir-resources">
+      Full support for FHIR R4 resources including Patient, Observation, Condition, and more
+    </Card>
+    <Card title="Scheduling System" icon="calendar-days" href="/features/scheduling">
+      Advanced appointment scheduling with conflict detection and practitioner availability
+    </Card>
+    <Card title="Clinical Workflows" icon="workflow" href="/features/clinical-workflows">
+      Care-team task management and clinical command center for risk stratification
+    </Card>
+    <Card title="Security & Compliance" icon="shield-check" href="/security/hipaa-overview">
+      HIPAA-aligned controls with AES-256-GCM encryption and comprehensive audit logging
+    </Card>
+    <Card title="Role-Based Access" icon="users-gear" href="/security/rbac">
+      Multi-role access control for admins, practitioners, and auditors
+    </Card>
+  </CardGroup>
+</div>
 
-## Make it yours
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-white mb-4">
+    API Reference
+  </h2>
+  <p className="text-base text-gray-600 dark:text-gray-400 mb-8">
+    Explore the complete FHIR R4 API
+  </p>
+  
+  <CardGroup cols={3}>
+    <Card title="Patient" icon="user" href="/api/fhir/patient">
+      Create, read, and update patient records
+    </Card>
+    <Card title="Observation" icon="chart-line" href="/api/fhir/observation">
+      Clinical observations and vital signs
+    </Card>
+    <Card title="Condition" icon="heart-pulse" href="/api/fhir/condition">
+      Problem list and diagnoses
+    </Card>
+    <Card title="AllergyIntolerance" icon="allergies" href="/api/fhir/allergy-intolerance">
+      Patient allergy records
+    </Card>
+    <Card title="MedicationRequest" icon="pills" href="/api/fhir/medication-request">
+      Medication orders and prescriptions
+    </Card>
+    <Card title="Encounter" icon="stethoscope" href="/api/fhir/encounter">
+      Clinical encounters and visits
+    </Card>
+    <Card title="Appointment" icon="calendar-check" href="/api/fhir/appointment">
+      Schedule and manage appointments
+    </Card>
+    <Card title="Task" icon="clipboard-list" href="/api/fhir/task">
+      Care-team task management
+    </Card>
+    <Card title="Authentication" icon="key" href="/api/authentication">
+      JWT-based authentication
+    </Card>
+  </CardGroup>
+</div>
 
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
-  </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
-  </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
-  </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
-  </Card>
-</Columns>
-
-## Create beautiful pages
-
-Everything you need to create world-class documentation.
-
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
-
-## Need inspiration?
-
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<div className="mt-20 mb-16 max-w-5xl mx-auto px-6">
+  <div className="bg-gradient-to-r from-[#2563eb] to-[#1e40af] dark:from-[#1e40af] dark:to-[#1e3a8a] rounded-2xl p-8 lg:p-12 text-center border border-blue-600/20">
+    <h2 className="text-2xl sm:text-3xl font-bold text-white mb-4">
+      Ready to get started?
+    </h2>
+    <p className="text-lg text-blue-100 mb-8 max-w-2xl mx-auto">
+      Follow our quickstart guide to set up OmniEHR locally and start building your healthcare application.
+    </p>
+    <a 
+      href="/quickstart" 
+      className="inline-flex items-center px-6 py-3 bg-white text-[#2563eb] font-semibold rounded-lg hover:bg-blue-50 transition-colors no-underline"
+    >
+      View Quickstart Guide
+      <svg className="ml-2 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+      </svg>
+    </a>
+  </div>
+</div>

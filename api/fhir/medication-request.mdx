@@ -1,0 +1,198 @@
+---
+title: MedicationRequest Resource
+description: Medication orders and prescriptions
+---
+
+The MedicationRequest resource represents an order or request for medication. All requests must reference a valid Patient.
+
+## Endpoints
+
+### Create MedicationRequest
+
+<Note>
+  Requires **admin** or **practitioner** role.
+</Note>
+
+```http
+POST /api/fhir/MedicationRequest
+Authorization: Bearer {token}
+Content-Type: application/json
+```
+
+<ParamField body="resourceType" type="string" required>
+  Must be `"MedicationRequest"`
+</ParamField>
+
+<ParamField body="status" type="string" required>
+  `active`, `on-hold`, `cancelled`, `completed`, `entered-in-error`, `stopped`, `draft`, `unknown`
+</ParamField>
+
+<ParamField body="intent" type="string" required>
+  `proposal`, `plan`, `order`, `original-order`, `reflex-order`, `filler-order`, `instance-order`, `option`
+</ParamField>
+
+<ParamField body="medicationCodeableConcept" type="object" required>
+  Medication being requested (RxNorm code)
+</ParamField>
+
+<ParamField body="subject" type="object" required>
+  Reference to Patient: `{"reference": "Patient/{id}"}`
+</ParamField>
+
+<ParamField body="authoredOn" type="string">
+  When the request was initially created
+</ParamField>
+
+<ParamField body="dosageInstruction" type="array">
+  How the medication should be taken
+</ParamField>
+
+<ParamField body="dispenseRequest" type="object">
+  Medication supply authorization
+</ParamField>
+
+#### Example Request
+
+```bash cURL
+curl -X POST https://api.example.com/api/fhir/MedicationRequest \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "resourceType": "MedicationRequest",
+    "status": "active",
+    "intent": "order",
+    "medicationCodeableConcept": {
+      "coding": [{
+        "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+        "code": "197361",
+        "display": "Lisinopril 10 MG Oral Tablet"
+      }]
+    },
+    "subject": {
+      "reference": "Patient/65f1234567890abcdef12345"
+    },
+    "authoredOn": "2024-03-15T10:00:00Z",
+    "dosageInstruction": [{
+      "text": "Take one tablet daily",
+      "timing": {
+        "repeat": {
+          "frequency": 1,
+          "period": 1,
+          "periodUnit": "d"
+        }
+      },
+      "route": {
+        "coding": [{
+          "system": "http://snomed.info/sct",
+          "code": "26643006",
+          "display": "Oral route"
+        }]
+      },
+      "doseAndRate": [{
+        "doseQuantity": {
+          "value": 10,
+          "unit": "mg",
+          "system": "http://unitsofmeasure.org",
+          "code": "mg"
+        }
+      }]
+    }],
+    "dispenseRequest": {
+      "numberOfRepeatsAllowed": 3,
+      "quantity": {
+        "value": 30,
+        "unit": "tablets",
+        "system": "http://unitsofmeasure.org",
+        "code": "{tablets}"
+      },
+      "expectedSupplyDuration": {
+        "value": 30,
+        "unit": "days",
+        "system": "http://unitsofmeasure.org",
+        "code": "d"
+      }
+    }
+  }'
+```
+
+#### Response
+
+```json
+{
+  "resourceType": "MedicationRequest",
+  "id": "65f5678901234abcdef56789",
+  "status": "active",
+  "intent": "order",
+  "medicationCodeableConcept": {
+    "coding": [{
+      "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+      "code": "197361",
+      "display": "Lisinopril 10 MG Oral Tablet"
+    }]
+  },
+  "subject": {
+    "reference": "Patient/65f1234567890abcdef12345"
+  },
+  "authoredOn": "2024-03-15T10:00:00Z"
+}
+```
+
+---
+
+### List MedicationRequests
+
+```http
+GET /api/fhir/MedicationRequest
+Authorization: Bearer {token}
+```
+
+<ParamField query="subject" type="string">
+  Filter by patient: `Patient/{id}`
+</ParamField>
+
+<ParamField query="status" type="string">
+  Filter by status
+</ParamField>
+
+---
+
+### Get MedicationRequest by ID
+
+```http
+GET /api/fhir/MedicationRequest/:id
+Authorization: Bearer {token}
+```
+
+---
+
+### Update MedicationRequest
+
+```http
+PUT /api/fhir/MedicationRequest/:id
+Authorization: Bearer {token}
+Content-Type: application/json
+```
+
+---
+
+## Medication Status Workflow
+
+<Steps>
+  <Step title="Draft">
+    Initial creation, not yet finalized
+  </Step>
+  <Step title="Active">
+    Medication is currently being taken
+  </Step>
+  <Step title="Completed">
+    Medication course is finished
+  </Step>
+</Steps>
+
+## Role Permissions
+
+| Role | Create | Read | Update |
+|------|--------|------|--------|
+| Admin | ✅ | ✅ | ✅ |
+| Practitioner | ✅ | ✅ | ✅ |
+| Auditor | ❌ | ✅ | ❌ |

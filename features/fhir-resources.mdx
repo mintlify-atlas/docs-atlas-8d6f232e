@@ -1,0 +1,742 @@
+---
+title: FHIR Resources
+description: Complete overview of all FHIR R4 resources supported by OmniEHR
+---
+
+OmniEHR implements FHIR R4-compatible resources for comprehensive clinical data management. All resources follow HL7 FHIR specifications with standardized CRUD operations.
+
+## Supported Resources
+
+OmniEHR supports the following FHIR R4 resources:
+
+<CardGroup cols={2}>
+  <Card title="Patient" icon="user">
+    Demographics, identifiers, contact information
+  </Card>
+  
+  <Card title="Observation" icon="flask">
+    Vital signs, lab results, clinical measurements
+  </Card>
+  
+  <Card title="Condition" icon="notes-medical">
+    Diagnoses, problems, health concerns
+  </Card>
+  
+  <Card title="AllergyIntolerance" icon="pills">
+    Allergies, intolerances, adverse reactions
+  </Card>
+  
+  <Card title="MedicationRequest" icon="prescription">
+    Prescriptions, medication orders
+  </Card>
+  
+  <Card title="Encounter" icon="hospital">
+    Clinical visits, episodes of care
+  </Card>
+  
+  <Card title="Appointment" icon="calendar">
+    Scheduled appointments, bookings
+  </Card>
+  
+  <Card title="Task" icon="list-check">
+    Care coordination, workflows, assignments
+  </Card>
+</CardGroup>
+
+## FHIR Capability Statement
+
+OmniEHR exposes a FHIR CapabilityStatement at `/api/fhir/metadata`:
+
+```json CapabilityStatement
+{
+  "resourceType": "CapabilityStatement",
+  "status": "active",
+  "date": "2026-03-04T10:30:00Z",
+  "kind": "instance",
+  "fhirVersion": "4.0.1",
+  "format": ["json"],
+  "software": {
+    "name": "OmniEHR Core",
+    "version": "2.0.0"
+  },
+  "implementation": {
+    "description": "FHIR R4-compatible EHR API",
+    "url": "https://your-server/api/fhir"
+  },
+  "rest": [
+    {
+      "mode": "server",
+      "resource": [
+        {
+          "type": "Patient",
+          "interaction": [
+            { "code": "read" },
+            { "code": "search-type" },
+            { "code": "create" },
+            { "code": "update" }
+          ]
+        }
+        // ... additional resources
+      ]
+    }
+  ]
+}
+```
+
+## Resource Details
+
+### Patient
+
+Patient demographics and administrative information.
+
+<CodeGroup>
+```json Example Patient Resource
+{
+  "resourceType": "Patient",
+  "id": "507f1f77bcf86cd799439011",
+  "identifier": [
+    {
+      "system": "urn:pid",
+      "value": "1000042"
+    },
+    {
+      "system": "urn:mrn",
+      "value": "MRN-12345"
+    }
+  ],
+  "active": true,
+  "name": [
+    {
+      "family": "Smith",
+      "given": ["John"]
+    }
+  ],
+  "telecom": [
+    {
+      "system": "phone",
+      "value": "+1-555-0123"
+    },
+    {
+      "system": "email",
+      "value": "john.smith@example.com"
+    }
+  ],
+  "gender": "male",
+  "birthDate": "1980-01-15",
+  "address": [
+    {
+      "line": ["123 Main St"],
+      "city": "Springfield",
+      "state": "IL",
+      "postalCode": "62701"
+    }
+  ]
+}
+```
+
+```javascript Create Patient
+await fhirApi.createPatient(token, {
+  resourceType: "Patient",
+  active: true,
+  identifier: [{
+    system: "urn:mrn",
+    value: "MRN-12345"
+  }],
+  name: [{
+    family: "Smith",
+    given: ["John"]
+  }],
+  gender: "male",
+  birthDate: "1980-01-15"
+});
+```
+</CodeGroup>
+
+**Interactions**: read, search-type, create, update, $everything
+
+### Observation
+
+Clinical observations including vital signs, lab results, and measurements.
+
+<CodeGroup>
+```json Example Observation
+{
+  "resourceType": "Observation",
+  "id": "507f1f77bcf86cd799439012",
+  "status": "final",
+  "code": {
+    "coding": [
+      {
+        "system": "http://loinc.org",
+        "code": "8480-6",
+        "display": "Systolic blood pressure"
+      }
+    ]
+  },
+  "subject": {
+    "reference": "Patient/507f1f77bcf86cd799439011"
+  },
+  "effectiveDateTime": "2026-03-04T10:30:00Z",
+  "valueQuantity": {
+    "value": 120,
+    "unit": "mmHg",
+    "system": "http://unitsofmeasure.org",
+    "code": "mmHg"
+  },
+  "note": [
+    {
+      "text": "Patient was seated and relaxed"
+    }
+  ]
+}
+```
+
+```javascript Common LOINC Codes
+// Blood pressure
+"8480-6" // Systolic blood pressure
+"8462-4" // Diastolic blood pressure
+
+// Diabetes monitoring
+"4548-4" // HbA1c
+"2339-0" // Glucose
+
+// Vital signs
+"8310-5" // Body temperature
+"8867-4" // Heart rate
+"9279-1" // Respiratory rate
+"29463-7" // Body weight
+"8302-2" // Body height
+```
+</CodeGroup>
+
+**Interactions**: read, search-type, create, update
+
+### Condition
+
+Diagnoses, problems, and health concerns.
+
+```json Example Condition
+{
+  "resourceType": "Condition",
+  "id": "507f1f77bcf86cd799439013",
+  "clinicalStatus": {
+    "coding": [
+      {
+        "system": "http://terminology.hl7.org/CodeSystem/condition-clinical",
+        "code": "active"
+      }
+    ]
+  },
+  "verificationStatus": {
+    "coding": [
+      {
+        "system": "http://terminology.hl7.org/CodeSystem/condition-ver-status",
+        "code": "confirmed"
+      }
+    ]
+  },
+  "code": {
+    "coding": [
+      {
+        "system": "http://snomed.info/sct",
+        "code": "44054006",
+        "display": "Type 2 diabetes mellitus"
+      }
+    ]
+  },
+  "subject": {
+    "reference": "Patient/507f1f77bcf86cd799439011"
+  },
+  "recordedDate": "2026-03-04T10:30:00Z",
+  "note": [
+    {
+      "text": "Well-controlled with metformin"
+    }
+  ]
+}
+```
+
+**Clinical Statuses**: active, recurrence, relapse, inactive, remission, resolved
+
+**Interactions**: read, search-type, create, update
+
+### AllergyIntolerance
+
+Allergies and adverse reactions.
+
+```json Example AllergyIntolerance
+{
+  "resourceType": "AllergyIntolerance",
+  "id": "507f1f77bcf86cd799439014",
+  "clinicalStatus": {
+    "coding": [
+      {
+        "system": "http://terminology.hl7.org/CodeSystem/allergyintolerance-clinical",
+        "code": "active"
+      }
+    ]
+  },
+  "verificationStatus": {
+    "coding": [
+      {
+        "system": "http://terminology.hl7.org/CodeSystem/allergyintolerance-verification",
+        "code": "confirmed"
+      }
+    ]
+  },
+  "type": "allergy",
+  "category": ["food"],
+  "criticality": "high",
+  "code": {
+    "coding": [
+      {
+        "system": "http://snomed.info/sct",
+        "code": "227493005",
+        "display": "Cashew nuts"
+      }
+    ]
+  },
+  "patient": {
+    "reference": "Patient/507f1f77bcf86cd799439011"
+  },
+  "recordedDate": "2026-03-04T10:30:00Z",
+  "reaction": [
+    {
+      "substance": {
+        "text": "Cashew nuts"
+      },
+      "manifestation": [
+        {
+          "text": "Hives"
+        }
+      ],
+      "severity": "moderate",
+      "description": "Hives and skin rash"
+    }
+  ]
+}
+```
+
+**Categories**: food, medication, environment, biologic
+
+**Criticality**: low, high, unable-to-assess
+
+**Interactions**: read, search-type, create, update
+
+### MedicationRequest
+
+Prescription and medication orders.
+
+```json Example MedicationRequest
+{
+  "resourceType": "MedicationRequest",
+  "id": "507f1f77bcf86cd799439015",
+  "status": "active",
+  "intent": "order",
+  "medicationCodeableConcept": {
+    "coding": [
+      {
+        "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+        "code": "860975",
+        "display": "Metformin 500 MG Oral Tablet"
+      }
+    ]
+  },
+  "subject": {
+    "reference": "Patient/507f1f77bcf86cd799439011"
+  },
+  "authoredOn": "2026-03-04T10:30:00Z",
+  "dosageInstruction": [
+    {
+      "text": "Take 1 tablet by mouth twice daily"
+    }
+  ],
+  "reasonCode": [
+    {
+      "text": "Type 2 diabetes"
+    }
+  ]
+}
+```
+
+**Status Values**: active, on-hold, cancelled, completed, stopped
+
+**Interactions**: read, search-type, create, update
+
+### Encounter
+
+Clinical visits and episodes of care.
+
+```json Example Encounter
+{
+  "resourceType": "Encounter",
+  "id": "507f1f77bcf86cd799439016",
+  "status": "finished",
+  "class": {
+    "code": "AMB"
+  },
+  "type": [
+    {
+      "coding": [
+        {
+          "system": "http://snomed.info/sct",
+          "code": "185349003",
+          "display": "Outpatient visit"
+        }
+      ]
+    }
+  ],
+  "subject": {
+    "reference": "Patient/507f1f77bcf86cd799439011"
+  },
+  "period": {
+    "start": "2026-03-04T10:00:00Z",
+    "end": "2026-03-04T10:30:00Z"
+  },
+  "reasonCode": [
+    {
+      "text": "Routine follow-up"
+    }
+  ],
+  "location": [
+    {
+      "location": {
+        "display": "Primary care clinic"
+      }
+    }
+  ],
+  "serviceProvider": {
+    "display": "General Medicine"
+  }
+}
+```
+
+**Status Values**: planned, arrived, in-progress, finished
+
+**Interactions**: read, search-type, create, update
+
+### Appointment
+
+Scheduled appointments with slot-based booking.
+
+```json Example Appointment
+{
+  "resourceType": "Appointment",
+  "id": "507f1f77bcf86cd799439017",
+  "status": "booked",
+  "serviceCategory": [
+    {
+      "text": "Follow-up"
+    }
+  ],
+  "description": "Diabetes follow-up visit",
+  "start": "2026-03-15T09:00:00Z",
+  "end": "2026-03-15T09:15:00Z",
+  "minutesDuration": 15,
+  "participant": [
+    {
+      "actor": {
+        "reference": "Patient/507f1f77bcf86cd799439011"
+      },
+      "status": "accepted"
+    },
+    {
+      "actor": {
+        "reference": "Practitioner/507f1f77bcf86cd799439020",
+        "display": "Dr. Jane Doe"
+      },
+      "status": "accepted"
+    }
+  ],
+  "reasonCode": [
+    {
+      "text": "Diabetes management"
+    }
+  ],
+  "comment": "Patient prefers morning appointments"
+}
+```
+
+**Status Values**: booked, arrived, checked-in, fulfilled, cancelled, noshow, waitlist
+
+**Scheduling Rules**:
+- 15-minute slots only
+- Monday-Saturday, 09:00-12:00
+- Conflict detection enforced
+
+**Interactions**: read, search-type, create, update
+
+### Task
+
+Care coordination tasks and workflows.
+
+```json Example Task
+{
+  "resourceType": "Task",
+  "id": "507f1f77bcf86cd799439018",
+  "status": "requested",
+  "intent": "order",
+  "priority": "routine",
+  "code": {
+    "text": "Care coordination"
+  },
+  "description": "Schedule HbA1c follow-up lab work",
+  "for": {
+    "reference": "Patient/507f1f77bcf86cd799439011"
+  },
+  "owner": {
+    "reference": "Practitioner/507f1f77bcf86cd799439020",
+    "display": "Dr. Jane Doe"
+  },
+  "authoredOn": "2026-03-04T10:30:00Z",
+  "executionPeriod": {
+    "end": "2026-03-11T23:59:59Z"
+  },
+  "note": [
+    {
+      "text": "Patient has recent prescription changes"
+    }
+  ]
+}
+```
+
+**Status Values**: requested, accepted, in-progress, on-hold, completed, cancelled
+
+**Priority Levels**: routine, urgent, asap, stat
+
+**Task Categories**:
+- Care coordination
+- Medication reconciliation
+- Lab follow-up
+- Preventive screening
+- Discharge outreach
+- Referral management
+
+**Interactions**: read, search-type, create, update
+
+## Search Parameters
+
+OmniEHR supports the following search parameters:
+
+### Patient Search
+
+```bash
+GET /api/fhir/Patient?identifier=1000042
+```
+
+### Resource-Specific Search
+
+<Tabs>
+  <Tab title="By Patient">
+    ```bash
+    GET /api/fhir/Observation?subject=Patient/507f1f77bcf86cd799439011
+    GET /api/fhir/Condition?subject=Patient/507f1f77bcf86cd799439011
+    GET /api/fhir/MedicationRequest?subject=Patient/507f1f77bcf86cd799439011
+    ```
+  </Tab>
+  
+  <Tab title="By Date Range">
+    ```bash
+    GET /api/fhir/Appointment?from=2026-03-01T00:00:00Z&to=2026-03-31T23:59:59Z
+    ```
+  </Tab>
+  
+  <Tab title="By Practitioner">
+    ```bash
+    GET /api/fhir/Appointment?practitioner=Practitioner/507f1f77bcf86cd799439020
+    GET /api/fhir/Task?owner=Practitioner/507f1f77bcf86cd799439020
+    ```
+  </Tab>
+  
+  <Tab title="By Status">
+    ```bash
+    GET /api/fhir/Task?status=requested
+    GET /api/fhir/Task?for=Patient/507f1f77bcf86cd799439011&status=in-progress
+    ```
+  </Tab>
+</Tabs>
+
+## Bundle Responses
+
+All search operations return FHIR Bundle resources:
+
+```json Searchset Bundle
+{
+  "resourceType": "Bundle",
+  "type": "searchset",
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "total": 2,
+  "timestamp": "2026-03-04T10:30:00Z",
+  "entry": [
+    {
+      "fullUrl": "https://your-server/api/fhir/Patient/507f1f77bcf86cd799439011",
+      "resource": {
+        "resourceType": "Patient",
+        "id": "507f1f77bcf86cd799439011",
+        // ... resource content
+      },
+      "search": {
+        "mode": "match"
+      }
+    },
+    {
+      "fullUrl": "https://your-server/api/fhir/Patient/507f1f77bcf86cd799439012",
+      "resource": {
+        "resourceType": "Patient",
+        "id": "507f1f77bcf86cd799439012",
+        // ... resource content
+      },
+      "search": {
+        "mode": "match"
+      }
+    }
+  ]
+}
+```
+
+## Database Models
+
+All FHIR resources are stored in MongoDB with indexed fields for efficient querying:
+
+<AccordionGroup>
+  <Accordion title="Patient Model Indexes">
+    ```javascript
+    patientSchema.index({ "identifier.value": 1 });
+    patientSchema.index({ pid: 1 }, { unique: true, sparse: true });
+    patientSchema.index({ createdAt: -1 });
+    ```
+  </Accordion>
+  
+  <Accordion title="Appointment Model Indexes">
+    ```javascript
+    appointmentSchema.index({ "patient.reference": 1, start: -1 });
+    appointmentSchema.index({ practitionerUserId: 1, start: 1, end: 1 });
+    appointmentSchema.index({ start: 1 });
+    ```
+  </Accordion>
+  
+  <Accordion title="Task Model Indexes">
+    ```javascript
+    taskSchema.index({ "for.reference": 1, dueDate: 1 });
+    taskSchema.index({ ownerUserId: 1, status: 1, dueDate: 1 });
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## FHIR Mapper Service
+
+OmniEHR includes a comprehensive FHIR mapper service to convert between FHIR resources and database documents:
+
+```javascript fhirMapper.js
+// Convert FHIR resource to database document
+export const patientResourceToDoc = (resource) => {
+  if (resource.resourceType !== "Patient") {
+    throw new ApiError(400, "Expected a Patient resource");
+  }
+  
+  const name = resource.name?.[0] || {};
+  const givenName = name.given?.[0] || "";
+  const familyName = name.family || "";
+  const phone = pickTelecom(resource.telecom, "phone");
+  const email = pickTelecom(resource.telecom, "email");
+  const address = resource.address?.[0] || {};
+  
+  return {
+    resourceType: "Patient",
+    identifier: resource.identifier || [],
+    active: resource.active !== false,
+    gender: resource.gender || "unknown",
+    birthDate: dateOnlyToDate(resource.birthDate),
+    phi: {
+      givenName: encryptPhi(givenName),
+      familyName: encryptPhi(familyName),
+      phone: encryptPhi(phone),
+      email: encryptPhi(email),
+      line1: encryptPhi(address.line?.[0] || ""),
+      city: encryptPhi(address.city || ""),
+      state: encryptPhi(address.state || ""),
+      postalCode: encryptPhi(address.postalCode || "")
+    }
+  };
+};
+
+// Convert database document to FHIR resource
+export const patientDocToResource = (doc) => {
+  const phi = doc.phi || {};
+  const givenName = decryptPhi(phi.givenName);
+  const familyName = decryptPhi(phi.familyName);
+  const phone = decryptPhi(phi.phone);
+  const email = decryptPhi(phi.email);
+  
+  return {
+    resourceType: "Patient",
+    id: doc._id.toString(),
+    identifier: doc.identifier || [],
+    active: doc.active !== false,
+    name: [{
+      family: familyName,
+      given: givenName ? [givenName] : []
+    }],
+    telecom: [
+      ...(phone ? [{ system: "phone", value: phone }] : []),
+      ...(email ? [{ system: "email", value: email }] : [])
+    ],
+    gender: doc.gender || "unknown",
+    birthDate: toDateOnly(doc.birthDate),
+    address: // ... address mapping
+  };
+};
+```
+
+## Validation
+
+All resources are validated using Zod schemas before persistence:
+
+```javascript validation.js
+import { z } from "zod";
+
+export const patientResourceSchema = z.object({
+  resourceType: z.literal("Patient"),
+  identifier: z.array(z.object({
+    system: z.string().optional(),
+    value: z.string()
+  })).optional(),
+  active: z.boolean().optional(),
+  name: z.array(z.object({
+    family: z.string(),
+    given: z.array(z.string()).optional()
+  })),
+  telecom: z.array(z.object({
+    system: z.string(),
+    value: z.string()
+  })).optional(),
+  gender: z.enum(["male", "female", "other", "unknown"]).optional(),
+  birthDate: z.string().optional(),
+  address: z.array(z.object({
+    line: z.array(z.string()).optional(),
+    city: z.string().optional(),
+    state: z.string().optional(),
+    postalCode: z.string().optional()
+  })).optional()
+});
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Patient Management" icon="user" href="/features/patient-management">
+    Learn about patient registry and demographics
+  </Card>
+  
+  <Card title="Scheduling" icon="calendar" href="/features/scheduling">
+    Explore appointment scheduling system
+  </Card>
+  
+  <Card title="Clinical Workflows" icon="stethoscope" href="/features/clinical-workflows">
+    View task management and care coordination
+  </Card>
+  
+  <Card title="API Reference" icon="code" href="/api/overview">
+    Complete API documentation
+  </Card>
+</CardGroup>

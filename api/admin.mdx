@@ -1,0 +1,574 @@
+---
+title: 'Admin API'
+description: 'Administrative endpoints for user provisioning, practitioner management, and audit log retrieval'
+---
+
+<Warning>
+  All admin endpoints require authentication via Bearer token. Most endpoints require the `admin` role unless otherwise specified.
+</Warning>
+
+## Authentication
+
+All admin endpoints require a valid JWT token in the Authorization header:
+
+```bash
+Authorization: Bearer YOUR_JWT_TOKEN
+```
+
+## List Users
+
+<CodeGroup>
+```bash GET /admin/users
+curl -X GET https://api.omniehr.com/admin/users \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+</CodeGroup>
+
+Retrieve a list of all system users.
+
+### Authorization
+
+**Required Role:** `admin`
+
+### Response
+
+<ResponseField name="data" type="array" required>
+  Array of user objects
+  
+  <ResponseField name="id" type="string" required>
+    User's unique identifier (MongoDB ObjectId)
+  </ResponseField>
+  
+  <ResponseField name="email" type="string" required>
+    User's email address (lowercase)
+  </ResponseField>
+  
+  <ResponseField name="fullName" type="string" required>
+    User's full name
+  </ResponseField>
+  
+  <ResponseField name="organization" type="string">
+    User's organization name
+  </ResponseField>
+  
+  <ResponseField name="role" type="string" required>
+    User role: `admin`, `practitioner`, or `auditor`
+  </ResponseField>
+  
+  <ResponseField name="active" type="boolean" required>
+    Whether the user account is active
+  </ResponseField>
+  
+  <ResponseField name="lastLoginAt" type="string">
+    ISO 8601 timestamp of last login
+  </ResponseField>
+  
+  <ResponseField name="createdAt" type="string" required>
+    ISO 8601 timestamp of account creation
+  </ResponseField>
+  
+  <ResponseField name="updatedAt" type="string" required>
+    ISO 8601 timestamp of last update
+  </ResponseField>
+</ResponseField>
+
+<ResponseField name="total" type="number" required>
+  Total number of users
+</ResponseField>
+
+### Example Response
+
+```json
+{
+  "data": [
+    {
+      "id": "65a1b2c3d4e5f6a7b8c9d0e1",
+      "email": "dr.smith@hospital.org",
+      "fullName": "Dr. Sarah Smith",
+      "organization": "City General Hospital",
+      "role": "practitioner",
+      "active": true,
+      "lastLoginAt": "2026-03-04T10:30:00.000Z",
+      "createdAt": "2026-01-15T08:00:00.000Z",
+      "updatedAt": "2026-03-04T10:30:00.000Z"
+    },
+    {
+      "id": "65a1b2c3d4e5f6a7b8c9d0e2",
+      "email": "admin@omniehr.com",
+      "fullName": "System Administrator",
+      "organization": "OmniEHR",
+      "role": "admin",
+      "active": true,
+      "lastLoginAt": "2026-03-04T09:15:00.000Z",
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-03-04T09:15:00.000Z"
+    }
+  ],
+  "total": 2
+}
+```
+
+---
+
+## Create User
+
+<CodeGroup>
+```bash POST /admin/users
+curl -X POST https://api.omniehr.com/admin/users \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "dr.johnson@clinic.com",
+    "fullName": "Dr. Michael Johnson",
+    "organization": "Downtown Clinic",
+    "password": "SecureP@ssw0rd123!",
+    "role": "practitioner"
+  }'
+```
+</CodeGroup>
+
+Provision a new user account in the system.
+
+### Authorization
+
+**Required Role:** `admin`
+
+### Request Body
+
+<ParamField body="email" type="string" required>
+  User's email address. Must be a valid email format and will be converted to lowercase. Must be unique.
+</ParamField>
+
+<ParamField body="fullName" type="string" required>
+  User's full name. Must be 2-120 characters.
+</ParamField>
+
+<ParamField body="organization" type="string">
+  User's organization name. Maximum 120 characters. Defaults to empty string.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  User's password. Must meet complexity requirements:
+  - Minimum 12 characters, maximum 128 characters
+  - At least one uppercase letter (A-Z)
+  - At least one lowercase letter (a-z)
+  - At least one digit (0-9)
+  - At least one special character
+</ParamField>
+
+<ParamField body="role" type="string">
+  User's role in the system. Must be one of: `admin`, `practitioner`, `auditor`. Defaults to `practitioner`.
+</ParamField>
+
+### Response
+
+<ResponseField name="user" type="object" required>
+  The created user object
+  
+  <ResponseField name="id" type="string" required>
+    User's unique identifier
+  </ResponseField>
+  
+  <ResponseField name="email" type="string" required>
+    User's email address
+  </ResponseField>
+  
+  <ResponseField name="fullName" type="string" required>
+    User's full name
+  </ResponseField>
+  
+  <ResponseField name="organization" type="string">
+    User's organization name
+  </ResponseField>
+  
+  <ResponseField name="role" type="string" required>
+    User's assigned role
+  </ResponseField>
+  
+  <ResponseField name="active" type="boolean" required>
+    Account active status (always true for new users)
+  </ResponseField>
+  
+  <ResponseField name="createdAt" type="string" required>
+    ISO 8601 timestamp of account creation
+  </ResponseField>
+  
+  <ResponseField name="updatedAt" type="string" required>
+    ISO 8601 timestamp of last update
+  </ResponseField>
+</ResponseField>
+
+### Example Response
+
+```json
+{
+  "user": {
+    "id": "65a1b2c3d4e5f6a7b8c9d0e3",
+    "email": "dr.johnson@clinic.com",
+    "fullName": "Dr. Michael Johnson",
+    "organization": "Downtown Clinic",
+    "role": "practitioner",
+    "active": true,
+    "createdAt": "2026-03-04T11:00:00.000Z",
+    "updatedAt": "2026-03-04T11:00:00.000Z"
+  }
+}
+```
+
+### Error Responses
+
+<ResponseField name="409 Conflict">
+  Email address is already in use
+  
+  ```json
+  {
+    "error": "Email is already in use"
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="400 Bad Request">
+  Validation error for invalid input
+  
+  ```json
+  {
+    "error": "Validation failed",
+    "details": [
+      {
+        "field": "password",
+        "message": "Password must include at least one uppercase letter"
+      }
+    ]
+  }
+  ```
+</ResponseField>
+
+---
+
+## List Practitioners
+
+<CodeGroup>
+```bash GET /admin/practitioners
+curl -X GET https://api.omniehr.com/admin/practitioners \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+</CodeGroup>
+
+Retrieve a list of active practitioners.
+
+### Authorization
+
+**Required Role:** `admin` or `practitioner`
+
+<Note>
+  When accessed by a practitioner, only returns their own information. When accessed by an admin, returns all active practitioners.
+</Note>
+
+### Response
+
+<ResponseField name="data" type="array" required>
+  Array of practitioner user objects (same structure as user objects), sorted alphabetically by full name
+</ResponseField>
+
+<ResponseField name="total" type="number" required>
+  Total number of practitioners returned
+</ResponseField>
+
+### Example Response (Admin)
+
+```json
+{
+  "data": [
+    {
+      "id": "65a1b2c3d4e5f6a7b8c9d0e1",
+      "email": "dr.anderson@hospital.org",
+      "fullName": "Dr. Alice Anderson",
+      "organization": "City General Hospital",
+      "role": "practitioner",
+      "active": true,
+      "lastLoginAt": "2026-03-04T08:45:00.000Z",
+      "createdAt": "2026-01-10T00:00:00.000Z",
+      "updatedAt": "2026-03-04T08:45:00.000Z"
+    },
+    {
+      "id": "65a1b2c3d4e5f6a7b8c9d0e3",
+      "email": "dr.johnson@clinic.com",
+      "fullName": "Dr. Michael Johnson",
+      "organization": "Downtown Clinic",
+      "role": "practitioner",
+      "active": true,
+      "createdAt": "2026-03-04T11:00:00.000Z",
+      "updatedAt": "2026-03-04T11:00:00.000Z"
+    }
+  ],
+  "total": 2
+}
+```
+
+---
+
+## Get Audit Logs
+
+<CodeGroup>
+```bash GET /admin/audit-logs
+curl -X GET "https://api.omniehr.com/admin/audit-logs?page=1&limit=25&outcome=success" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+</CodeGroup>
+
+Retrieve paginated audit logs with optional filtering.
+
+### Authorization
+
+**Required Role:** `admin` or `auditor`
+
+### Query Parameters
+
+<ParamField query="page" type="number" default="1">
+  Page number for pagination. Must be >= 1.
+</ParamField>
+
+<ParamField query="limit" type="number" default="25">
+  Number of records per page. Must be between 1 and 100.
+</ParamField>
+
+<ParamField query="outcome" type="string">
+  Filter by outcome: `success` or `failure`
+</ParamField>
+
+<ParamField query="resourceType" type="string">
+  Filter by FHIR resource type (e.g., `Patient`, `Observation`, `Appointment`)
+</ParamField>
+
+<ParamField query="actorEmail" type="string">
+  Filter by actor's email address (case-insensitive)
+</ParamField>
+
+### Response
+
+<ResponseField name="page" type="number" required>
+  Current page number
+</ResponseField>
+
+<ResponseField name="limit" type="number" required>
+  Number of records per page
+</ResponseField>
+
+<ResponseField name="total" type="number" required>
+  Total number of records matching the filter
+</ResponseField>
+
+<ResponseField name="data" type="array" required>
+  Array of audit log entries
+  
+  <ResponseField name="_id" type="string" required>
+    Unique identifier for the audit log entry
+  </ResponseField>
+  
+  <ResponseField name="actorUserId" type="string">
+    User ID of the actor who performed the action
+  </ResponseField>
+  
+  <ResponseField name="actorEmail" type="string">
+    Email address of the actor
+  </ResponseField>
+  
+  <ResponseField name="actorRole" type="string">
+    Role of the actor: `admin`, `practitioner`, or `auditor`
+  </ResponseField>
+  
+  <ResponseField name="action" type="string" required>
+    Description of the action performed (e.g., "create", "read", "update", "delete")
+  </ResponseField>
+  
+  <ResponseField name="resourceType" type="string">
+    FHIR resource type affected (e.g., "Patient", "Observation")
+  </ResponseField>
+  
+  <ResponseField name="resourceId" type="string">
+    ID of the affected resource
+  </ResponseField>
+  
+  <ResponseField name="method" type="string" required>
+    HTTP method used (GET, POST, PUT, DELETE)
+  </ResponseField>
+  
+  <ResponseField name="path" type="string" required>
+    API endpoint path accessed
+  </ResponseField>
+  
+  <ResponseField name="statusCode" type="number" required>
+    HTTP status code of the response
+  </ResponseField>
+  
+  <ResponseField name="outcome" type="string" required>
+    Result of the action: `success` or `failure`
+  </ResponseField>
+  
+  <ResponseField name="ipAddress" type="string">
+    IP address of the client
+  </ResponseField>
+  
+  <ResponseField name="userAgent" type="string">
+    User agent string of the client
+  </ResponseField>
+  
+  <ResponseField name="createdAt" type="string" required>
+    ISO 8601 timestamp when the log was created
+  </ResponseField>
+  
+  <ResponseField name="updatedAt" type="string" required>
+    ISO 8601 timestamp of last update
+  </ResponseField>
+</ResponseField>
+
+### Example Response
+
+```json
+{
+  "page": 1,
+  "limit": 25,
+  "total": 142,
+  "data": [
+    {
+      "_id": "65a1b2c3d4e5f6a7b8c9d0f1",
+      "actorUserId": "65a1b2c3d4e5f6a7b8c9d0e1",
+      "actorEmail": "dr.smith@hospital.org",
+      "actorRole": "practitioner",
+      "action": "create",
+      "resourceType": "Patient",
+      "resourceId": "65a1b2c3d4e5f6a7b8c9d0f2",
+      "method": "POST",
+      "path": "/fhir/Patient",
+      "statusCode": 201,
+      "outcome": "success",
+      "ipAddress": "192.168.1.100",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      "createdAt": "2026-03-04T10:35:22.000Z",
+      "updatedAt": "2026-03-04T10:35:22.000Z"
+    },
+    {
+      "_id": "65a1b2c3d4e5f6a7b8c9d0f3",
+      "actorUserId": "65a1b2c3d4e5f6a7b8c9d0e2",
+      "actorEmail": "admin@omniehr.com",
+      "actorRole": "admin",
+      "action": "create",
+      "resourceType": "User",
+      "resourceId": "65a1b2c3d4e5f6a7b8c9d0e3",
+      "method": "POST",
+      "path": "/admin/users",
+      "statusCode": 201,
+      "outcome": "success",
+      "ipAddress": "10.0.0.50",
+      "userAgent": "curl/7.68.0",
+      "createdAt": "2026-03-04T10:30:15.000Z",
+      "updatedAt": "2026-03-04T10:30:15.000Z"
+    },
+    {
+      "_id": "65a1b2c3d4e5f6a7b8c9d0f4",
+      "actorEmail": "unknown@example.com",
+      "action": "login_attempt",
+      "method": "POST",
+      "path": "/auth/login",
+      "statusCode": 401,
+      "outcome": "failure",
+      "ipAddress": "203.0.113.45",
+      "userAgent": "PostmanRuntime/7.29.0",
+      "createdAt": "2026-03-04T10:28:50.000Z",
+      "updatedAt": "2026-03-04T10:28:50.000Z"
+    }
+  ]
+}
+```
+
+### Example Filtered Request
+
+```bash
+# Get all failed operations
+curl -X GET "https://api.omniehr.com/admin/audit-logs?outcome=failure&page=1&limit=50" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+
+# Get all Patient resource operations by a specific user
+curl -X GET "https://api.omniehr.com/admin/audit-logs?resourceType=Patient&actorEmail=dr.smith@hospital.org" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+---
+
+## User Roles
+
+### Role Descriptions
+
+<ResponseField name="admin">
+  **Administrator** - Full system access including user provisioning, all FHIR resources, and audit logs
+</ResponseField>
+
+<ResponseField name="practitioner">
+  **Healthcare Practitioner** - Can manage patient records, clinical resources (Observations, Conditions, Medications, Encounters, Appointments, Tasks), and view their own practitioner profile
+</ResponseField>
+
+<ResponseField name="auditor">
+  **Auditor** - Read-only access to audit logs for compliance and security monitoring. Cannot modify any resources.
+</ResponseField>
+
+### Role Permission Matrix
+
+| Endpoint | Admin | Practitioner | Auditor |
+|----------|-------|--------------|----------|
+| GET /admin/users | ✓ | ✗ | ✗ |
+| POST /admin/users | ✓ | ✗ | ✗ |
+| GET /admin/practitioners | ✓ | ✓ (self only) | ✗ |
+| GET /admin/audit-logs | ✓ | ✗ | ✓ |
+| All FHIR endpoints | ✓ | ✓ | ✗ |
+
+---
+
+## Error Responses
+
+All admin endpoints may return the following error responses:
+
+### 401 Unauthorized
+
+Returned when authentication fails or no token is provided.
+
+```json
+{
+  "error": "Authentication required"
+}
+```
+
+### 403 Forbidden
+
+Returned when the authenticated user lacks the required role.
+
+```json
+{
+  "error": "Insufficient permissions"
+}
+```
+
+### 400 Bad Request
+
+Returned when request validation fails.
+
+```json
+{
+  "error": "Validation failed",
+  "details": [
+    {
+      "field": "email",
+      "message": "Invalid email format"
+    }
+  ]
+}
+```
+
+### 500 Internal Server Error
+
+Returned when an unexpected server error occurs.
+
+```json
+{
+  "error": "Internal server error"
+}
+```

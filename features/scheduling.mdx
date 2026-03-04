@@ -1,0 +1,852 @@
+---
+title: Appointment Scheduling
+description: Comprehensive appointment scheduling system with slot-based booking, conflict detection, and availability management
+---
+
+OmniEHR provides a robust appointment scheduling system with 15-minute time slots, real-time conflict detection, and comprehensive schedule management across multiple practitioners.
+
+## Overview
+
+The scheduling system operates Monday through Saturday from 9:00 AM to 12:00 PM with fixed 15-minute appointment slots.
+
+<CardGroup cols={2}>
+  <Card title="Slot-Based Booking" icon="calendar-days">
+    Fixed 15-minute slots prevent double-booking and ensure consistent scheduling
+  </Card>
+  
+  <Card title="Conflict Detection" icon="shield">
+    Real-time validation prevents overlapping appointments for practitioners
+  </Card>
+  
+  <Card title="Multi-Practitioner" icon="users">
+    Support for multiple practitioners with independent schedules
+  </Card>
+  
+  <Card title="Availability Views" icon="eye">
+    Real-time availability display based on existing bookings
+  </Card>
+</CardGroup>
+
+## Scheduling Configuration
+
+### Clinic Hours and Slot Configuration
+
+```javascript scheduling.js
+export const SLOT_INTERVAL_MINUTES = 15;
+export const CLINIC_OPEN_MINUTES = 9 * 60;  // 9:00 AM
+export const CLINIC_CLOSE_MINUTES = 12 * 60; // 12:00 PM
+
+// Available booking days (Monday=1 through Saturday=6)
+const bookableWeekdays = new Set([1, 2, 3, 4, 5, 6]);
+
+// Statuses that don't block slots
+const nonBlockingStatuses = new Set([
+  "cancelled", 
+  "noshow", 
+  "entered-in-error"
+]);
+```
+
+### Backend Validation
+
+The server enforces strict scheduling rules:
+
+```javascript fhirRoutes.js
+const nonBlockingAppointmentStatuses = [
+  "cancelled", 
+  "noshow", 
+  "entered-in-error"
+];
+const slotDurationMinutes = 15;
+const slotWindowStartMinutes = 9 * 60;
+const slotWindowEndMinutes = 12 * 60;
+const allowedBookingDays = new Set([1, 2, 3, 4, 5, 6]);
+
+const ensureWithinBookableSlot = ({ start, end, minutesDuration }) => {
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+    throw new ApiError(400, "Appointment start/end must be valid datetime values");
+  }
+
+  if (startDate >= endDate) {
+    throw new ApiError(400, "Appointment end must be after start");
+  }
+
+  if (startDate.toDateString() !== endDate.toDateString()) {
+    throw new ApiError(400, "Appointments must start and end on the same day");
+  }
+
+  if (!allowedBookingDays.has(startDate.getDay())) {
+    throw new ApiError(400, "Appointments are only allowed Monday to Saturday");
+  }
+
+  const startTotalMinutes = startDate.getHours() * 60 + startDate.getMinutes();
+  const endTotalMinutes = endDate.getHours() * 60 + endDate.getMinutes();
+  const duration = Math.round((endDate.getTime() - startDate.getTime()) / (1000 * 60));
+
+  if (
+    startTotalMinutes < slotWindowStartMinutes ||
+    endTotalMinutes > slotWindowEndMinutes ||
+    startTotalMinutes % slotDurationMinutes !== 0 ||
+    endTotalMinutes % slotDurationMinutes !== 0
+  ) {
+    throw new ApiError(400, "Appointments must be within 09:00-12:00 in 15-minute slot boundaries");
+  }
+
+  if (duration !== slotDurationMinutes) {
+    throw new ApiError(400, "Appointments must be exactly 15 minutes");
+  }
+};
+```
+
+<Note>
+  **Scheduling Rules**: All appointments must be exactly 15 minutes, start on slot boundaries (00, 15, 30, 45 minutes), and fall within clinic hours on bookable weekdays.
+</Note>
+
+## Slot Generation
+
+The system generates available time slots dynamically:
+
+```javascript buildDailySlots()
+const format12Hour = (totalMinutes) => {
+  const hours24 = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  const period = hours24 >= 12 ? "PM" : "AM";
+  const hours12 = hours24 % 12 === 0 ? 12 : hours24 % 12;
+
+  return `${pad(hours12)}:${pad(minutes)} ${period}`;
+};
+
+export const buildDailySlots = () => {
+  const slots = [];
+
+  for (
+    let minutes = CLINIC_OPEN_MINUTES;
+    minutes < CLINIC_CLOSE_MINUTES;
+    minutes += SLOT_INTERVAL_MINUTES
+  ) {
+    const next = minutes + SLOT_INTERVAL_MINUTES;
+    const hour = Math.floor(minutes / 60);
+    const minute = minutes % 60;
+
+    slots.push({
+      value: `${pad(hour)}:${pad(minute)}`,
+      label: `${format12Hour(minutes)} - ${format12Hour(next)}`
+    });
+  }
+
+  return slots;
+};
+
+// Example output:
+// [
+//   { value: "09:00", label: "09:00 AM - 09:15 AM" },
+//   { value: "09:15", label: "09:15 AM - 09:30 AM" },
+//   { value: "09:30", label: "09:30 AM - 09:45 AM" },
+//   ...
+//   { value: "11:45", label: "11:45 AM - 12:00 PM" }
+// ]
+```
+
+## Availability Detection
+
+### Checking Slot Availability
+
+The system checks if a specific slot is available for a practitioner:
+
+```javascript isSlotUnavailable()
+export const isSlotUnavailable = ({ 
+  appointments, 
+  practitionerId, 
+  dateInput, 
+  slotValue 
+}) => {
+  if (!isBookableDateInput(dateInput)) {
+    return true;
+  }
+
+  const slotRange = getSlotRange(dateInput, slotValue);
+  if (!slotRange) {
+    return true;
+  }
+
+  return appointments.some((appointment) => {
+    // Skip cancelled/noshow appointments
+    if (!isBlockingAppointmentStatus(appointment.status)) {
+      return false;
+    }
+
+    // Check if appointment is for this practitioner
+    const appointmentPractitionerId = getPractitionerIdFromAppointment(appointment);
+    if (appointmentPractitionerId !== practitionerId) {
+      return false;
+    }
+
+    const appointmentStart = new Date(appointment.start);
+    const appointmentEnd = new Date(appointment.end);
+
+    if (Number.isNaN(appointmentStart.getTime()) || 
+        Number.isNaN(appointmentEnd.getTime())) {
+      return false;
+    }
+
+    // Check for time overlap
+    return appointmentStart < slotRange.end && 
+           appointmentEnd > slotRange.start;
+  });
+};
+```
+
+### Practitioner Availability
+
+Determine if a practitioner has any available slots on a given date:
+
+```javascript practitionerHasAvailableSlot()
+export const practitionerHasAvailableSlot = ({ 
+  appointments, 
+  practitionerId, 
+  dateInput 
+}) => {
+  if (!isBookableDateInput(dateInput)) {
+    return false;
+  }
+
+  const slots = buildDailySlots();
+
+  return slots.some(
+    (slot) => !isSlotUnavailable({
+      appointments,
+      practitionerId,
+      dateInput,
+      slotValue: slot.value
+    })
+  );
+};
+```
+
+## Backend Conflict Detection
+
+The server validates practitioner availability before creating appointments:
+
+```javascript ensurePractitionerAvailability()
+const ensurePractitionerAvailability = async ({
+  practitionerUserId,
+  start,
+  end,
+  excludeAppointmentId
+}) => {
+  const filter = {
+    practitionerUserId,
+    status: { $nin: nonBlockingAppointmentStatuses },
+    start: { $lt: end },
+    end: { $gt: start }
+  };
+
+  if (excludeAppointmentId) {
+    filter._id = { $ne: excludeAppointmentId };
+  }
+
+  const conflict = await Appointment.findOne(filter)
+    .select("_id start end")
+    .lean();
+
+  if (conflict) {
+    throw new ApiError(409, "Practitioner is not available in the selected time range");
+  }
+};
+```
+
+## Schedule Page UI
+
+The Schedule page provides comprehensive appointment management:
+
+### Loading Appointments
+
+```jsx SchedulePage.jsx
+const loadAppointmentsTable = async () => {
+  const from = fromDate ? 
+    getDayRangeFromDateInput(fromDate).start.toISOString() : undefined;
+  const to = toDate ? 
+    getDayRangeFromDateInput(toDate).end.toISOString() : undefined;
+
+  const response = await fhirApi.listAppointments(token, {
+    from,
+    to
+  });
+
+  setAppointments(bundleToResources(response));
+};
+
+const loadSlotAppointments = async (dateInput) => {
+  if (!isBookableDateInput(dateInput)) {
+    setSlotAppointments([]);
+    return;
+  }
+
+  const { start, end } = getDayRangeFromDateInput(dateInput);
+  const response = await fhirApi.listAppointments(token, {
+    from: start.toISOString(),
+    to: end.toISOString()
+  });
+
+  setSlotAppointments(bundleToResources(response));
+};
+```
+
+### Slot Options with Availability
+
+```jsx Slot Selection
+const slotOptions = useMemo(() => {
+  const slots = buildDailySlots();
+
+  return slots.map((slot) => ({
+    ...slot,
+    unavailable:
+      !form.practitionerId ||
+      isSlotUnavailable({
+        appointments: slotAppointments,
+        practitionerId: form.practitionerId,
+        dateInput: form.appointmentDate,
+        slotValue: slot.value
+      })
+  }));
+}, [form.appointmentDate, form.practitionerId, slotAppointments]);
+
+// Render slot dropdown
+<select
+  value={form.slotValue}
+  onChange={(event) => setForm((prev) => ({ 
+    ...prev, 
+    slotValue: event.target.value 
+  }))}
+  required
+>
+  <option value="" disabled>Choose a slot</option>
+  {slotOptions.map((slot) => (
+    <option 
+      key={slot.value} 
+      value={slot.value} 
+      disabled={slot.unavailable}
+    >
+      {slot.label}
+      {slot.unavailable ? " (Unavailable)" : ""}
+    </option>
+  ))}
+</select>
+```
+
+### Available Practitioners Filter
+
+```jsx Available Practitioners
+const availablePractitioners = useMemo(() => {
+  const scopedPractitioners = user.role === "practitioner"
+    ? practitioners.filter((p) => p.id === user.id)
+    : practitioners;
+
+  return scopedPractitioners.filter((practitioner) =>
+    practitionerHasAvailableSlot({
+      appointments: slotAppointments,
+      practitionerId: practitioner.id,
+      dateInput: form.appointmentDate
+    })
+  );
+}, [form.appointmentDate, practitioners, slotAppointments, user.id, user.role]);
+```
+
+## Creating Appointments
+
+### Frontend Appointment Creation
+
+```jsx onCreateAppointment
+const onCreateAppointment = async (event) => {
+  event.preventDefault();
+  setLoading(true);
+  setError("");
+
+  try {
+    if (!isBookableDateInput(form.appointmentDate)) {
+      throw new Error("Appointments can only be booked Monday to Saturday");
+    }
+
+    const practitioner = practitionerMap.get(form.practitionerId);
+    if (!practitioner) {
+      throw new Error("Select an available practitioner");
+    }
+
+    const slotRange = getSlotRange(form.appointmentDate, form.slotValue);
+    if (!slotRange) {
+      throw new Error("Select a valid appointment slot");
+    }
+
+    const resource = {
+      resourceType: "Appointment",
+      status: "booked",
+      description: form.description,
+      serviceCategory: form.serviceCategory ? 
+        [{ text: form.serviceCategory }] : undefined,
+      start: slotRange.start.toISOString(),
+      end: slotRange.end.toISOString(),
+      minutesDuration: 15,
+      participant: [
+        {
+          actor: {
+            reference: `Patient/${form.patientId}`
+          },
+          status: "accepted"
+        },
+        {
+          actor: {
+            reference: `Practitioner/${practitioner.id}`,
+            display: practitioner.fullName
+          },
+          status: "accepted"
+        }
+      ],
+      reasonCode: form.reason ? [{ text: form.reason }] : undefined,
+      comment: form.comment || undefined
+    };
+
+    await fhirApi.createAppointment(token, resource);
+    await Promise.all([
+      loadAppointmentsTable(), 
+      loadSlotAppointments(form.appointmentDate)
+    ]);
+  } catch (err) {
+    setError(err.message || "Unable to create appointment");
+  } finally {
+    setLoading(false);
+  }
+};
+```
+
+### Backend Appointment Creation
+
+```javascript POST /api/fhir/Appointment
+router.post(
+  "/Appointment",
+  authorize(...writeRoles),
+  asyncHandler(async (req, res) => {
+    const resource = appointmentResourceSchema.parse(req.body);
+    const docPayload = appointmentResourceToDoc(resource);
+
+    // Validate slot boundaries and clinic hours
+    ensureWithinBookableSlot(docPayload);
+    
+    // Ensure patient exists
+    await ensurePatientExists(docPayload.patient.reference);
+    
+    // Ensure practitioner exists and is active
+    await ensurePractitionerExists(docPayload.practitionerUserId);
+    
+    // Verify user has permission to book for this practitioner
+    ensureBookingPermission(req.user, docPayload.practitionerUserId);
+    
+    // Check for time conflicts
+    await ensurePractitionerAvailability({
+      practitionerUserId: docPayload.practitionerUserId,
+      start: docPayload.start,
+      end: docPayload.end
+    });
+
+    const practitioner = await User.findById(docPayload.practitionerUserId)
+      .select("fullName")
+      .lean();
+
+    const record = await Appointment.create({
+      ...docPayload,
+      practitionerName: practitioner?.fullName || docPayload.practitionerName,
+      createdBy: req.user.sub
+    });
+
+    res.status(201).json(appointmentDocToResource(record));
+  })
+);
+```
+
+## Service Categories
+
+OmniEHR supports multiple service categories for appointment classification:
+
+```javascript Service Categories
+export const SERVICE_CATEGORY_OPTIONS = [
+  "Outpatient",
+  "Follow-up",
+  "Primary Care",
+  "Preventive Care",
+  "Annual Wellness Visit",
+  "Chronic Disease Management",
+  "Medication Review",
+  "Post-Discharge Follow-up",
+  "Urgent Care",
+  "Behavioral Health",
+  "Cardiology Consultation",
+  "Dermatology Consultation",
+  "Orthopedic Consultation",
+  "Telehealth Visit",
+  "Immunization"
+];
+```
+
+## Appointment Statuses
+
+Appointments can have the following statuses:
+
+| Status | Description | Blocks Slot |
+|--------|-------------|-------------|
+| `proposed` | Appointment proposed | Yes |
+| `pending` | Awaiting confirmation | Yes |
+| `booked` | Confirmed appointment | Yes |
+| `arrived` | Patient has arrived | Yes |
+| `fulfilled` | Appointment completed | Yes |
+| `checked-in` | Patient checked in | Yes |
+| `waitlist` | On waitlist | Yes |
+| `cancelled` | Appointment cancelled | **No** |
+| `noshow` | Patient did not show | **No** |
+| `entered-in-error` | Created in error | **No** |
+
+<Info>
+  Cancelled, noshow, and entered-in-error appointments do not block time slots and allow new bookings in those time periods.
+</Info>
+
+## Schedule Filtering
+
+The schedule page includes comprehensive filtering options:
+
+```jsx Schedule Filters
+<article className="card form-grid two-columns">
+  <h2>Schedule filters</h2>
+  
+  <label>
+    From
+    <input
+      type="date"
+      value={fromDate}
+      onChange={(event) => setFromDate(event.target.value)}
+    />
+  </label>
+  
+  <label>
+    To
+    <input 
+      type="date" 
+      value={toDate} 
+      onChange={(event) => setToDate(event.target.value)} 
+    />
+  </label>
+  
+  <label>
+    Status
+    <select 
+      value={statusFilter} 
+      onChange={(event) => setStatusFilter(event.target.value)}
+    >
+      <option value="all">All statuses</option>
+      <option value="booked">booked</option>
+      <option value="arrived">arrived</option>
+      <option value="checked-in">checked-in</option>
+      <option value="fulfilled">fulfilled</option>
+      <option value="waitlist">waitlist</option>
+      <option value="noshow">noshow</option>
+      <option value="cancelled">cancelled</option>
+    </select>
+  </label>
+  
+  <label>
+    Service category
+    <select 
+      value={serviceFilter} 
+      onChange={(event) => setServiceFilter(event.target.value)}
+    >
+      <option value="all">All services</option>
+      {serviceFilterOptions.map((service) => (
+        <option key={service} value={service}>
+          {service}
+        </option>
+      ))}
+    </select>
+  </label>
+</article>
+```
+
+## Operations Metrics
+
+The schedule page displays real-time operational metrics:
+
+```jsx Operations Snapshot
+const operationsSnapshot = useMemo(() => {
+  const totalSlots = buildDailySlots().length * scopedPractitioners.length;
+  const bookedSlots = slotAppointments.filter((appointment) =>
+    isBlockingAppointmentStatus(appointment.status)
+  ).length;
+  const fillRate = totalSlots > 0 ? 
+    Math.round((bookedSlots / totalSlots) * 1000) / 10 : 0;
+  const checkedInCount = appointments.filter((appointment) =>
+    ["arrived", "checked-in", "fulfilled"].includes(appointment.status)
+  ).length;
+  const waitlistCount = appointments.filter(
+    (appointment) => appointment.status === "waitlist"
+  ).length;
+  const noShowRate = calculateNoShowRate(appointments, 90);
+  const serviceMix = calculateServiceMix(filteredAppointments).slice(0, 3);
+
+  return {
+    fillRate,
+    bookedSlots,
+    totalSlots,
+    checkedInCount,
+    waitlistCount,
+    noShowRate,
+    serviceMix
+  };
+}, [appointments, filteredAppointments, scopedPractitioners.length, slotAppointments]);
+
+// Display metrics
+<article className="stats-grid">
+  <div className="metric-card">
+    <h2>Selected-day fill rate</h2>
+    <p className="metric-value">{operationsSnapshot.fillRate}%</p>
+    <p className="muted-text">
+      {operationsSnapshot.bookedSlots}/{operationsSnapshot.totalSlots} bookable slots used.
+    </p>
+  </div>
+  
+  <div className="metric-card">
+    <h2>No-show rate</h2>
+    <p className="metric-value">{operationsSnapshot.noShowRate}%</p>
+    <p className="muted-text">Trailing 90-day trend.</p>
+  </div>
+  
+  <div className="metric-card">
+    <h2>Checked-in visits</h2>
+    <p className="metric-value">{operationsSnapshot.checkedInCount}</p>
+    <p className="muted-text">Arrived/checked-in/fulfilled in current query window.</p>
+  </div>
+  
+  <div className="metric-card">
+    <h2>Waitlist</h2>
+    <p className="metric-value">{operationsSnapshot.waitlistCount}</p>
+    <p className="muted-text">Appointments currently on waitlist status.</p>
+  </div>
+</article>
+```
+
+### No-Show Rate Calculation
+
+```javascript calculateNoShowRate()
+export const calculateNoShowRate = (appointments, lookbackDays = 90, now = new Date()) => {
+  const lowerBound = new Date(now.getTime() - lookbackDays * 24 * 60 * 60 * 1000);
+
+  const historical = appointments.filter((appointment) => {
+    const start = toDate(appointment.start);
+    return Boolean(start && start >= lowerBound && start <= now);
+  });
+
+  if (historical.length === 0) {
+    return 0;
+  }
+
+  const noShows = historical.filter(
+    (appointment) => normalize(appointment.status) === "noshow"
+  );
+  return Math.round((noShows.length / historical.length) * 1000) / 10;
+};
+```
+
+## Appointment Data Model
+
+```javascript Appointment Schema
+const appointmentSchema = new mongoose.Schema({
+  resourceType: {
+    type: String,
+    default: "Appointment"
+  },
+  status: {
+    type: String,
+    enum: [
+      "proposed", "pending", "booked", "arrived", "fulfilled",
+      "cancelled", "noshow", "entered-in-error", "checked-in", "waitlist"
+    ],
+    default: "booked"
+  },
+  description: String,
+  serviceCategory: String,
+  start: {
+    type: Date,
+    required: true
+  },
+  end: {
+    type: Date,
+    required: true
+  },
+  minutesDuration: Number,
+  patient: {
+    reference: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Patient",
+      required: true
+    }
+  },
+  practitionerUserId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: true
+  },
+  practitionerName: String,
+  reason: String,
+  comment: String,
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User"
+  }
+}, {
+  timestamps: true
+});
+
+// Indexes for efficient querying
+appointmentSchema.index({ "patient.reference": 1, start: -1 });
+appointmentSchema.index({ practitionerUserId: 1, start: 1, end: 1 });
+appointmentSchema.index({ start: 1 });
+```
+
+## Role-Based Scheduling
+
+### Practitioner Restrictions
+
+Practitioners can only book appointments on their own schedule:
+
+```javascript Role-Based Access
+const ensureBookingPermission = (requestingUser, practitionerUserId) => {
+  if (
+    requestingUser.role === "practitioner" &&
+    String(practitionerUserId) !== String(requestingUser.sub)
+  ) {
+    throw new ApiError(403, "Practitioners can only book appointments under their own schedule");
+  }
+};
+
+// Frontend: Filter practitioner list
+const scopedPractitioners = useMemo(() => {
+  if (user.role === "practitioner") {
+    return practitioners.filter((p) => p.id === user.id);
+  }
+  return practitioners;
+}, [practitioners, user.id, user.role]);
+```
+
+## Integration with Patient Detail
+
+The patient detail page includes inline appointment scheduling:
+
+```jsx Patient Detail Appointment Form
+<form className="card form-grid two-columns" onSubmit={onCreateAppointment}>
+  <h2>Schedule follow-up</h2>
+  
+  <label>
+    Date
+    <input
+      type="date"
+      value={appointmentForm.appointmentDate}
+      onChange={(event) =>
+        setAppointmentForm((prev) => ({ 
+          ...prev, 
+          appointmentDate: event.target.value 
+        }))
+      }
+      required
+    />
+  </label>
+  
+  <label>
+    Practitioner
+    <select
+      value={appointmentForm.practitionerId}
+      onChange={(event) =>
+        setAppointmentForm((prev) => ({ 
+          ...prev, 
+          practitionerId: event.target.value 
+        }))
+      }
+      disabled={user.role === "practitioner"}
+      required
+    >
+      {availablePractitioners.map((practitioner) => (
+        <option key={practitioner.id} value={practitioner.id}>
+          {practitioner.fullName}
+        </option>
+      ))}
+    </select>
+  </label>
+  
+  {/* Additional fields... */}
+  
+  <button
+    type="submit"
+    className="button"
+    disabled={
+      loading ||
+      !appointmentForm.appointmentDate ||
+      !appointmentForm.slotValue ||
+      !appointmentForm.practitionerId ||
+      availablePractitioners.length === 0 ||
+      !isBookableDateInput(appointmentForm.appointmentDate)
+    }
+  >
+    {loading ? "Saving..." : "Schedule appointment"}
+  </button>
+</form>
+```
+
+## API Reference
+
+### Appointment Endpoints
+
+| Method | Endpoint | Description | Required Role |
+|--------|----------|-------------|---------------|
+| POST | `/api/fhir/Appointment` | Create appointment | admin, practitioner |
+| GET | `/api/fhir/Appointment` | List appointments | admin, practitioner, auditor |
+| GET | `/api/fhir/Appointment/:id` | Get appointment by ID | admin, practitioner, auditor |
+| PUT | `/api/fhir/Appointment/:id` | Update appointment | admin, practitioner |
+
+### Query Parameters
+
+<Tabs>
+  <Tab title="By Patient">
+    ```bash
+    GET /api/fhir/Appointment?patient=Patient/507f1f77bcf86cd799439011
+    ```
+  </Tab>
+  
+  <Tab title="By Practitioner">
+    ```bash
+    GET /api/fhir/Appointment?practitioner=Practitioner/507f1f77bcf86cd799439020
+    ```
+  </Tab>
+  
+  <Tab title="By Date Range">
+    ```bash
+    GET /api/fhir/Appointment?from=2026-03-01T00:00:00Z&to=2026-03-31T23:59:59Z
+    ```
+  </Tab>
+</Tabs>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Patient Management" icon="user" href="/features/patient-management">
+    Learn about patient registry and demographics
+  </Card>
+  
+  <Card title="Clinical Workflows" icon="stethoscope" href="/features/clinical-workflows">
+    View task management and care coordination
+  </Card>
+  
+  <Card title="FHIR Resources" icon="database" href="/features/fhir-resources">
+    Explore all supported FHIR resources
+  </Card>
+  
+  <Card title="API Reference" icon="code" href="/api/overview">
+    Complete API documentation
+  </Card>
+</CardGroup>

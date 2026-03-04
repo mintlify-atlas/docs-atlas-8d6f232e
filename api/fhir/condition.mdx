@@ -1,0 +1,194 @@
+---
+title: Condition Resource
+description: Patient conditions, problems, and diagnoses
+---
+
+The Condition resource represents a clinical condition, problem, diagnosis, or other event that requires tracking. All conditions must reference a valid Patient.
+
+## Endpoints
+
+### Create Condition
+
+<Note>
+  Requires **admin** or **practitioner** role.
+</Note>
+
+```http
+POST /api/fhir/Condition
+Authorization: Bearer {token}
+Content-Type: application/json
+```
+
+<ParamField body="resourceType" type="string" required>
+  Must be `"Condition"`
+</ParamField>
+
+<ParamField body="clinicalStatus" type="object">
+  `active`, `recurrence`, `relapse`, `inactive`, `remission`, `resolved`
+</ParamField>
+
+<ParamField body="verificationStatus" type="object">
+  `unconfirmed`, `provisional`, `differential`, `confirmed`, `refuted`, `entered-in-error`
+</ParamField>
+
+<ParamField body="category" type="array">
+  Condition category (problem-list-item, encounter-diagnosis)
+</ParamField>
+
+<ParamField body="severity" type="object">
+  Subjective severity (mild, moderate, severe)
+</ParamField>
+
+<ParamField body="code" type="object" required>
+  Identification of the condition (ICD-10, SNOMED CT)
+</ParamField>
+
+<ParamField body="subject" type="object" required>
+  Reference to Patient: `{"reference": "Patient/{id}"}`
+</ParamField>
+
+<ParamField body="onsetDateTime" type="string">
+  When the condition began
+</ParamField>
+
+<ParamField body="abatementDateTime" type="string">
+  When the condition resolved
+</ParamField>
+
+<ParamField body="note" type="array">
+  Additional clinical notes
+</ParamField>
+
+#### Example Request
+
+```bash cURL
+curl -X POST https://api.example.com/api/fhir/Condition \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "resourceType": "Condition",
+    "clinicalStatus": {
+      "coding": [{
+        "system": "http://terminology.hl7.org/CodeSystem/condition-clinical",
+        "code": "active"
+      }]
+    },
+    "verificationStatus": {
+      "coding": [{
+        "system": "http://terminology.hl7.org/CodeSystem/condition-ver-status",
+        "code": "confirmed"
+      }]
+    },
+    "category": [{
+      "coding": [{
+        "system": "http://terminology.hl7.org/CodeSystem/condition-category",
+        "code": "problem-list-item",
+        "display": "Problem List Item"
+      }]
+    }],
+    "severity": {
+      "coding": [{
+        "system": "http://snomed.info/sct",
+        "code": "24484000",
+        "display": "Severe"
+      }]
+    },
+    "code": {
+      "coding": [{
+        "system": "http://snomed.info/sct",
+        "code": "73211009",
+        "display": "Diabetes mellitus"
+      }]
+    },
+    "subject": {
+      "reference": "Patient/65f1234567890abcdef12345"
+    },
+    "onsetDateTime": "2023-01-15",
+    "note": [{
+      "text": "Patient reports symptoms began in January 2023"
+    }]
+  }'
+```
+
+#### Response
+
+```json
+{
+  "resourceType": "Condition",
+  "id": "65f3456789012abcdef34567",
+  "clinicalStatus": {
+    "coding": [{
+      "system": "http://terminology.hl7.org/CodeSystem/condition-clinical",
+      "code": "active"
+    }]
+  },
+  "code": {
+    "coding": [{
+      "system": "http://snomed.info/sct",
+      "code": "73211009",
+      "display": "Diabetes mellitus"
+    }]
+  },
+  "subject": {
+    "reference": "Patient/65f1234567890abcdef12345"
+  },
+  "onsetDateTime": "2023-01-15"
+}
+```
+
+---
+
+### List Conditions
+
+```http
+GET /api/fhir/Condition
+Authorization: Bearer {token}
+```
+
+<ParamField query="subject" type="string">
+  Filter by patient: `Patient/{id}`
+</ParamField>
+
+<ParamField query="clinical-status" type="string">
+  Filter by clinical status
+</ParamField>
+
+<ParamField query="_count" type="number">
+  Results per page
+</ParamField>
+
+---
+
+### Get Condition by ID
+
+```http
+GET /api/fhir/Condition/:id
+Authorization: Bearer {token}
+```
+
+---
+
+### Update Condition
+
+```http
+PUT /api/fhir/Condition/:id
+Authorization: Bearer {token}
+Content-Type: application/json
+```
+
+---
+
+## Common Condition Categories
+
+| Category | Code | Description |
+|----------|------|-------------|
+| Problem List Item | `problem-list-item` | Patient's ongoing conditions |
+| Encounter Diagnosis | `encounter-diagnosis` | Diagnosis during encounter |
+
+## Role Permissions
+
+| Role | Create | Read | Update |
+|------|--------|------|--------|
+| Admin | ✅ | ✅ | ✅ |
+| Practitioner | ✅ | ✅ | ✅ |
+| Auditor | ❌ | ✅ | ❌ |

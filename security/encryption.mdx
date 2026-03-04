@@ -1,0 +1,469 @@
+---
+title: 'PHI Encryption'
+description: 'AES-256-GCM encryption for Protected Health Information in OmniEHR'
+icon: 'lock'
+---
+
+## Overview
+
+OmniEHR encrypts all Protected Health Information (PHI) at rest using **AES-256-GCM** (Galois/Counter Mode). This authenticated encryption algorithm provides both confidentiality and integrity protection for sensitive patient data.
+
+### Why AES-256-GCM?
+
+<CardGroup cols={2}>
+  <Card title="Strong Encryption" icon="shield">
+    AES-256 is approved by NIST and recommended for classified information up to TOP SECRET.
+  </Card>
+  <Card title="Authentication" icon="check-circle">
+    GCM mode provides authenticated encryption, detecting any tampering with encrypted data.
+  </Card>
+  <Card title="Performance" icon="gauge">
+    Hardware-accelerated on modern CPUs for fast encryption/decryption operations.
+  </Card>
+  <Card title="HIPAA Compliant" icon="shield-check">
+    Meets HIPAA requirements for encryption of PHI at rest.
+  </Card>
+</CardGroup>
+
+## Encryption Service
+
+The crypto service is implemented in `~/workspace/source/server/src/services/cryptoService.js`.
+
+### Initialization
+
+```javascript
+// From ~/workspace/source/server/src/services/cryptoService.js:1
+import crypto from "crypto";
+import env from "../config/env.js";
+
+const algorithm = "aes-256-gcm";
+const key = Buffer.from(env.phiEncryptionKey, "hex");
+
+if (key.length !== 32) {
+  throw new Error("PHI_ENCRYPTION_KEY must be a 64-char hex string (32 bytes)");
+}
+```
+
+<Warning>
+The encryption key **must** be exactly 32 bytes (64 hexadecimal characters). The system validates this at startup and will fail if the key is incorrect.
+</Warning>
+
+### Generating an Encryption Key
+
+Use the following command to generate a secure 256-bit encryption key:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+Add the generated key to your `.env` file:
+
+```bash
+PHI_ENCRYPTION_KEY=a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6a7b8c9d0e1f2
+```
+
+<Note>
+Store this key securely! Loss of the encryption key means permanent loss of access to encrypted PHI. Use a secrets manager in production.
+</Note>
+
+## Encryption Functions
+
+### Encrypt PHI
+
+From `~/workspace/source/server/src/services/cryptoService.js:11`:
+
+```javascript
+export const encryptPhi = (plaintext = "") => {
+  if (!plaintext) {
+    return { iv: "", authTag: "", content: "" };
+  }
+
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv(algorithm, key, iv);
+  const encrypted = Buffer.concat([cipher.update(String(plaintext), "utf8"), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+
+  return {
+    iv: iv.toString("hex"),
+    authTag: authTag.toString("hex"),
+    content: encrypted.toString("hex")
+  };
+};
+```
+
+**Parameters:**
+- `plaintext` (string) - The sensitive data to encrypt
+
+**Returns:** Object with three fields:
+- `iv` (string) - Initialization vector in hex format (24 chars)
+- `authTag` (string) - Authentication tag in hex format (32 chars)
+- `content` (string) - Encrypted data in hex format
+
+**Example:**
+
+```javascript
+import { encryptPhi } from './services/cryptoService.js';
+
+const encrypted = encryptPhi("John Doe");
+console.log(encrypted);
+// {
+//   iv: "a1b2c3d4e5f6g7h8i9j0k1l2",
+//   authTag: "m1n2o3p4q5r6s7t8u9v0w1x2y3z4a5b6",
+//   content: "c1d2e3f4g5h6i7j8k9l0m1n2"
+// }
+```
+
+### Decrypt PHI
+
+From `~/workspace/source/server/src/services/cryptoService.js:28`:
+
+```javascript
+export const decryptPhi = (encrypted) => {
+  if (!encrypted?.content || !encrypted?.iv || !encrypted?.authTag) {
+    return "";
+  }
+
+  const decipher = crypto.createDecipheriv(
+    algorithm,
+    key,
+    Buffer.from(encrypted.iv, "hex")
+  );
+  decipher.setAuthTag(Buffer.from(encrypted.authTag, "hex"));
+
+  const decrypted = Buffer.concat([
+    decipher.update(Buffer.from(encrypted.content, "hex")),
+    decipher.final()
+  ]);
+
+  return decrypted.toString("utf8");
+};
+```
+
+**Parameters:**
+- `encrypted` (object) - Object with `iv`, `authTag`, and `content` fields
+
+**Returns:** Decrypted plaintext string
+
+**Example:**
+
+```javascript
+import { decryptPhi } from './services/cryptoService.js';
+
+const encrypted = {
+  iv: "a1b2c3d4e5f6g7h8i9j0k1l2",
+  authTag: "m1n2o3p4q5r6s7t8u9v0w1x2y3z4a5b6",
+  content: "c1d2e3f4g5h6i7j8k9l0m1n2"
+};
+
+const plaintext = decryptPhi(encrypted);
+console.log(plaintext); // "John Doe"
+```
+
+## Encrypted Field Schema
+
+PHI fields in MongoDB use a special schema structure from `~/workspace/source/server/src/models/Patient.js:3`:
+
+```javascript
+const encryptedFieldSchema = new mongoose.Schema(
+  {
+    iv: { type: String, default: "" },
+    authTag: { type: String, default: "" },
+    content: { type: String, default: "" }
+  },
+  { _id: false }
+);
+```
+
+This schema stores:
+- **iv**: 12-byte initialization vector (unique per encryption operation)
+- **authTag**: 16-byte authentication tag for integrity verification
+- **content**: The actual encrypted data
+
+### Patient PHI Fields
+
+From `~/workspace/source/server/src/models/Patient.js:38`, the following fields are encrypted:
+
+```javascript
+phi: {
+  givenName: encryptedFieldSchema,    // First name
+  familyName: encryptedFieldSchema,   // Last name
+  phone: encryptedFieldSchema,        // Phone number
+  email: encryptedFieldSchema,        // Email address
+  line1: encryptedFieldSchema,        // Street address
+  city: encryptedFieldSchema,         // City
+  state: encryptedFieldSchema,        // State/Province
+  postalCode: encryptedFieldSchema    // Postal/ZIP code
+}
+```
+
+### Database Storage Example
+
+Here's how encrypted PHI looks in MongoDB:
+
+```json
+{
+  "_id": "507f1f77bcf86cd799439011",
+  "resourceType": "Patient",
+  "gender": "male",
+  "birthDate": "1980-05-15T00:00:00.000Z",
+  "phi": {
+    "givenName": {
+      "iv": "a1b2c3d4e5f6g7h8i9j0k1l2",
+      "authTag": "m1n2o3p4q5r6s7t8u9v0w1x2y3z4a5b6",
+      "content": "c1d2e3f4g5h6i7j8k9l0m1n2"
+    },
+    "familyName": {
+      "iv": "b2c3d4e5f6g7h8i9j0k1l2m3",
+      "authTag": "n2o3p4q5r6s7t8u9v0w1x2y3z4a5b6c7",
+      "content": "d2e3f4g5h6i7j8k9l0m1n2o3"
+    },
+    "phone": {
+      "iv": "c3d4e5f6g7h8i9j0k1l2m3n4",
+      "authTag": "o3p4q5r6s7t8u9v0w1x2y3z4a5b6c7d8",
+      "content": "e3f4g5h6i7j8k9l0m1n2o3p4"
+    }
+  }
+}
+```
+
+## How It Works
+
+### AES-256-GCM Technical Details
+
+<Tabs>
+  <Tab title="Encryption Process">
+    1. **Generate IV**: A random 12-byte initialization vector is generated for each encryption
+    2. **Create Cipher**: Initialize AES-256-GCM cipher with the key and IV
+    3. **Encrypt Data**: Convert plaintext to ciphertext
+    4. **Get Auth Tag**: Extract the 16-byte authentication tag
+    5. **Return**: Return IV, auth tag, and encrypted content as hex strings
+
+    ```javascript
+    const iv = crypto.randomBytes(12);                          // Step 1
+    const cipher = crypto.createCipheriv(algorithm, key, iv);   // Step 2
+    const encrypted = Buffer.concat([                           // Step 3
+      cipher.update(String(plaintext), "utf8"),
+      cipher.final()
+    ]);
+    const authTag = cipher.getAuthTag();                        // Step 4
+    ```
+  </Tab>
+  <Tab title="Decryption Process">
+    1. **Parse Input**: Convert hex strings back to buffers
+    2. **Create Decipher**: Initialize AES-256-GCM decipher with key and IV
+    3. **Set Auth Tag**: Set the authentication tag for verification
+    4. **Decrypt Data**: Convert ciphertext back to plaintext
+    5. **Verify**: GCM automatically verifies authenticity during decryption
+
+    ```javascript
+    const decipher = crypto.createDecipheriv(                   // Step 2
+      algorithm,
+      key,
+      Buffer.from(encrypted.iv, "hex")
+    );
+    decipher.setAuthTag(Buffer.from(encrypted.authTag, "hex")); // Step 3
+    const decrypted = Buffer.concat([                           // Step 4
+      decipher.update(Buffer.from(encrypted.content, "hex")),
+      decipher.final()                                          // Step 5: verify
+    ]);
+    ```
+  </Tab>
+  <Tab title="Security Properties">
+    **Confidentiality**: AES-256 ensures that encrypted data cannot be read without the key
+
+    **Integrity**: GCM mode's authentication tag detects any modification to the ciphertext
+
+    **Uniqueness**: Random IV ensures the same plaintext encrypts to different ciphertext each time
+
+    **Key Size**: 256-bit key provides resistance against brute-force attacks
+
+    **IV Size**: 12-byte IV is optimal for GCM mode
+
+    **Tag Size**: 16-byte authentication tag provides strong integrity protection
+  </Tab>
+</Tabs>
+
+## Error Handling
+
+### Decryption Failures
+
+Decryption can fail if:
+
+1. **Wrong encryption key**: Authentication tag verification fails
+2. **Corrupted data**: Ciphertext has been modified
+3. **Missing fields**: IV, auth tag, or content is missing
+
+```javascript
+try {
+  const plaintext = decryptPhi(encrypted);
+  console.log(plaintext);
+} catch (error) {
+  // Possible errors:
+  // - "Unsupported state or unable to authenticate data"
+  // - Invalid hex encoding
+  console.error('Decryption failed:', error.message);
+}
+```
+
+<Warning>
+If the authentication tag verification fails, it means the encrypted data has been tampered with or the wrong key is being used. Never return partial decrypted data in this case.
+</Warning>
+
+## Integration Example
+
+Here's a complete example of encrypting and decrypting patient data:
+
+```javascript
+import { encryptPhi, decryptPhi } from './services/cryptoService.js';
+import Patient from './models/Patient.js';
+
+// Creating a new patient with encrypted PHI
+const createPatient = async (patientData) => {
+  const patient = await Patient.create({
+    resourceType: 'Patient',
+    gender: patientData.gender,
+    birthDate: patientData.birthDate,
+    phi: {
+      givenName: encryptPhi(patientData.givenName),
+      familyName: encryptPhi(patientData.familyName),
+      phone: encryptPhi(patientData.phone),
+      email: encryptPhi(patientData.email),
+      line1: encryptPhi(patientData.address.line1),
+      city: encryptPhi(patientData.address.city),
+      state: encryptPhi(patientData.address.state),
+      postalCode: encryptPhi(patientData.address.postalCode)
+    }
+  });
+
+  return patient;
+};
+
+// Reading patient data with decrypted PHI
+const getPatient = async (patientId) => {
+  const patient = await Patient.findById(patientId);
+  
+  if (!patient) {
+    throw new Error('Patient not found');
+  }
+
+  return {
+    id: patient._id,
+    resourceType: patient.resourceType,
+    gender: patient.gender,
+    birthDate: patient.birthDate,
+    givenName: decryptPhi(patient.phi.givenName),
+    familyName: decryptPhi(patient.phi.familyName),
+    phone: decryptPhi(patient.phi.phone),
+    email: decryptPhi(patient.phi.email),
+    address: {
+      line1: decryptPhi(patient.phi.line1),
+      city: decryptPhi(patient.phi.city),
+      state: decryptPhi(patient.phi.state),
+      postalCode: decryptPhi(patient.phi.postalCode)
+    }
+  };
+};
+```
+
+## Performance Considerations
+
+### Encryption Overhead
+
+- **Encryption**: ~0.1ms per field on modern hardware
+- **Decryption**: ~0.1ms per field on modern hardware
+- **Storage**: Each encrypted field adds ~100-200 bytes overhead
+
+### Optimization Tips
+
+<CardGroup cols={2}>
+  <Card title="Lazy Decryption" icon="lightning">
+    Only decrypt fields that are actually needed for the current operation
+  </Card>
+  <Card title="Batch Operations" icon="layer-group">
+    Encrypt/decrypt multiple fields in parallel when possible
+  </Card>
+  <Card title="Caching" icon="database">
+    Cache decrypted values in memory for the duration of a request (never in database)
+  </Card>
+  <Card title="Indexing" icon="magnifying-glass">
+    Use non-encrypted fields (gender, birthDate) for queries and indexes
+  </Card>
+</CardGroup>
+
+<Note>
+Encrypted fields cannot be searched or indexed directly. Use non-sensitive fields for filtering and searching.
+</Note>
+
+## Security Best Practices
+
+### Key Management
+
+1. **Generate Strong Keys**: Use cryptographically secure random generation
+2. **Rotate Keys**: Implement key rotation policy (e.g., annually)
+3. **Backup Keys**: Store encrypted backups in multiple secure locations
+4. **Access Control**: Limit who can access encryption keys
+5. **Secrets Manager**: Use AWS Secrets Manager, Azure Key Vault, or HashiCorp Vault in production
+
+### Key Rotation
+
+To rotate encryption keys:
+
+1. Generate new encryption key
+2. Deploy code with both old and new keys
+3. Re-encrypt all PHI with new key
+4. Verify all data is re-encrypted
+5. Remove old key from configuration
+
+```javascript
+// Pseudo-code for key rotation
+const reencryptPatient = async (patient) => {
+  const decryptedData = {
+    givenName: decryptPhiWithOldKey(patient.phi.givenName),
+    familyName: decryptPhiWithOldKey(patient.phi.familyName),
+    // ... other fields
+  };
+
+  patient.phi = {
+    givenName: encryptPhiWithNewKey(decryptedData.givenName),
+    familyName: encryptPhiWithNewKey(decryptedData.familyName),
+    // ... other fields
+  };
+
+  await patient.save();
+};
+```
+
+### Environment Security
+
+<Warning>
+**Never** commit encryption keys to version control. Always use environment variables or secrets management.
+</Warning>
+
+```bash
+# ❌ BAD - Don't do this
+PHI_ENCRYPTION_KEY=a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6a7b8c9d0e1f2
+
+# ✅ GOOD - Use secrets manager
+# AWS Secrets Manager
+PHI_ENCRYPTION_KEY=$(aws secretsmanager get-secret-value --secret-id phi-encryption-key --query SecretString --output text)
+
+# Azure Key Vault
+PHI_ENCRYPTION_KEY=$(az keyvault secret show --name phi-encryption-key --vault-name my-vault --query value -o tsv)
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="HIPAA Overview" href="/security/hipaa-overview" icon="shield-check">
+    Learn about HIPAA compliance measures
+  </Card>
+  <Card title="RBAC" href="/security/rbac" icon="users">
+    Understand role-based access control
+  </Card>
+  <Card title="API Reference" href="/api/fhir/patient" icon="code">
+    View Patient API endpoints
+  </Card>
+  <Card title="Data Models" href="/features/fhir-resources" icon="database">
+    Explore database schemas
+  </Card>
+</CardGroup>

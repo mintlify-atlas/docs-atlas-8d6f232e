@@ -1,0 +1,256 @@
+---
+title: Appointment Resource
+description: Patient appointment scheduling and management
+---
+
+The Appointment resource represents a scheduled healthcare event between patient(s) and practitioner(s). OmniEHR implements a 15-minute slot-based booking system with conflict detection.
+
+## Endpoints
+
+### Create Appointment
+
+<Note>
+  **Admin** can book for any practitioner. **Practitioners** can only book their own appointments.
+</Note>
+
+```http
+POST /api/fhir/Appointment
+Authorization: Bearer {token}
+Content-Type: application/json
+```
+
+<ParamField body="resourceType" type="string" required>
+  Must be `"Appointment"`
+</ParamField>
+
+<ParamField body="status" type="string" required>
+  `proposed`, `pending`, `booked`, `arrived`, `fulfilled`, `cancelled`, `noshow`, `entered-in-error`, `checked-in`, `waitlist`
+</ParamField>
+
+<ParamField body="serviceCategory" type="array">
+  Category of appointment (Outpatient, Follow-up, etc.)
+</ParamField>
+
+<ParamField body="appointmentType" type="object">
+  Type of appointment
+</ParamField>
+
+<ParamField body="reasonCode" type="array">
+  Reason for appointment
+</ParamField>
+
+<ParamField body="description" type="string">
+  Brief description of the appointment
+</ParamField>
+
+<ParamField body="start" type="string" required>
+  Start time (must be on 15-minute boundary, 09:00-12:00, Mon-Sat)
+</ParamField>
+
+<ParamField body="end" type="string" required>
+  End time (must be 15 minutes after start)
+</ParamField>
+
+<ParamField body="minutesDuration" type="number">
+  Must be 15
+</ParamField>
+
+<ParamField body="participant" type="array" required>
+  Patient and practitioner references
+</ParamField>
+
+<ParamField body="comment" type="string">
+  Additional comments
+</ParamField>
+
+#### Example Request
+
+```bash cURL
+curl -X POST https://api.example.com/api/fhir/Appointment \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "resourceType": "Appointment",
+    "status": "booked",
+    "serviceCategory": [{
+      "coding": [{
+        "system": "http://terminology.hl7.org/CodeSystem/service-category",
+        "code": "1",
+        "display": "Outpatient"
+      }]
+    }],
+    "appointmentType": {
+      "coding": [{
+        "system": "http://terminology.hl7.org/CodeSystem/v2-0276",
+        "code": "ROUTINE",
+        "display": "Routine appointment"
+      }]
+    },
+    "description": "Annual physical examination",
+    "start": "2024-03-20T10:00:00Z",
+    "end": "2024-03-20T10:15:00Z",
+    "minutesDuration": 15,
+    "participant": [
+      {
+        "actor": {
+          "reference": "Patient/65f1234567890abcdef12345"
+        },
+        "status": "accepted"
+      },
+      {
+        "actor": {
+          "reference": "Practitioner/65f9876543210abcdef98765"
+        },
+        "status": "accepted"
+      }
+    ],
+    "comment": "Patient requests Dr. Smith"
+  }'
+```
+
+#### Response
+
+```json
+{
+  "resourceType": "Appointment",
+  "id": "65f7890123456abcdef78901",
+  "status": "booked",
+  "start": "2024-03-20T10:00:00Z",
+  "end": "2024-03-20T10:15:00Z",
+  "minutesDuration": 15,
+  "participant": [
+    {
+      "actor": {
+        "reference": "Patient/65f1234567890abcdef12345"
+      },
+      "status": "accepted"
+    },
+    {
+      "actor": {
+        "reference": "Practitioner/65f9876543210abcdef98765"
+      },
+      "status": "accepted"
+    }
+  ]
+}
+```
+
+---
+
+### List Appointments
+
+```http
+GET /api/fhir/Appointment
+Authorization: Bearer {token}
+```
+
+<ParamField query="date" type="string">
+  Filter by appointment date (YYYY-MM-DD format)
+</ParamField>
+
+<ParamField query="practitioner" type="string">
+  Filter by practitioner: `Practitioner/{id}`
+</ParamField>
+
+<ParamField query="patient" type="string">
+  Filter by patient: `Patient/{id}`
+</ParamField>
+
+<ParamField query="status" type="string">
+  Filter by status
+</ParamField>
+
+#### Example Request
+
+```bash
+curl -X GET "https://api.example.com/api/fhir/Appointment?date=2024-03-20&practitioner=Practitioner/65f9876543210abcdef98765" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+---
+
+### Get Appointment by ID
+
+```http
+GET /api/fhir/Appointment/:id
+Authorization: Bearer {token}
+```
+
+---
+
+### Update Appointment
+
+<Note>
+  Updates are subject to the same scheduling rules: 15-minute slots, 09:00-12:00, Mon-Sat, no conflicts.
+</Note>
+
+```http
+PUT /api/fhir/Appointment/:id
+Authorization: Bearer {token}
+Content-Type: application/json
+```
+
+---
+
+## Scheduling Rules
+
+<Warning>
+  All appointments must follow these rules:
+  - **Duration**: Exactly 15 minutes
+  - **Time slots**: Must start on 15-minute boundaries (09:00, 09:15, 09:30, etc.)
+  - **Hours**: 09:00 AM - 12:00 PM only
+  - **Days**: Monday through Saturday
+  - **Conflicts**: Practitioner must be available (no overlapping bookings)
+</Warning>
+
+## Appointment Statuses
+
+| Status | Description | Blocks Slot? |
+|--------|-------------|-------------|
+| `proposed` | Appointment is proposed | ❌ |
+| `pending` | Waiting for confirmation | ❌ |
+| `booked` | Confirmed appointment | ✅ |
+| `arrived` | Patient has arrived | ✅ |
+| `fulfilled` | Appointment completed | ✅ |
+| `cancelled` | Appointment cancelled | ❌ |
+| `noshow` | Patient didn't show | ❌ |
+| `entered-in-error` | Created by mistake | ❌ |
+
+## Service Categories
+
+<CardGroup cols={3}>
+  <Card title="Outpatient" icon="hospital">
+    Regular outpatient visits
+  </Card>
+  <Card title="Follow-up" icon="rotate-right">
+    Follow-up appointments
+  </Card>
+  <Card title="Preventive Care" icon="shield-heart">
+    Wellness and screening
+  </Card>
+  <Card title="Acute Care" icon="siren-on">
+    Urgent care visits
+  </Card>
+  <Card title="Chronic Management" icon="calendar-days">
+    Ongoing condition management
+  </Card>
+  <Card title="Specialist Referral" icon="stethoscope">
+    Specialist consultations
+  </Card>
+</CardGroup>
+
+## Role Permissions
+
+| Role | Create | Read | Update | Scope |
+|------|--------|------|--------|-------|
+| Admin | ✅ | ✅ | ✅ | All practitioners |
+| Practitioner | ✅ | ✅ | ✅ | Own schedule only |
+| Auditor | ❌ | ✅ | ❌ | All appointments |
+
+## Error Responses
+
+| Status | Error | Description |
+|--------|-------|-------------|
+| 400 | Invalid slot | Time not on 15-min boundary or outside 09:00-12:00 |
+| 409 | Practitioner unavailable | Overlapping appointment exists |
+| 403 | Permission denied | Practitioner trying to book for another practitioner |

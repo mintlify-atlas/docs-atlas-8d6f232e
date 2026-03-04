@@ -1,0 +1,290 @@
+---
+title: Task Resource
+description: Care-team task management and workflow coordination
+---
+
+The Task resource represents work items that need to be completed as part of patient care coordination. Tasks support assignment, prioritization, and status tracking.
+
+## Endpoints
+
+### Create Task
+
+<Note>
+  **Admin** can create tasks for any practitioner. **Practitioners** can only create tasks assigned to themselves.
+</Note>
+
+```http
+POST /api/fhir/Task
+Authorization: Bearer {token}
+Content-Type: application/json
+```
+
+<ParamField body="resourceType" type="string" required>
+  Must be `"Task"`
+</ParamField>
+
+<ParamField body="status" type="string" required>
+  `draft`, `requested`, `received`, `accepted`, `rejected`, `ready`, `cancelled`, `in-progress`, `on-hold`, `failed`, `completed`, `entered-in-error`
+</ParamField>
+
+<ParamField body="intent" type="string" required>
+  `proposal`, `plan`, `order`, `original-order`, etc.
+</ParamField>
+
+<ParamField body="priority" type="string">
+  `routine`, `urgent`, `asap`, `stat`
+</ParamField>
+
+<ParamField body="code" type="object">
+  Task code (Care coordination, Medication reconciliation, etc.)
+</ParamField>
+
+<ParamField body="description" type="string">
+  Human-readable description of the task
+</ParamField>
+
+<ParamField body="for" type="object">
+  Reference to Patient: `{"reference": "Patient/{id}"}`
+</ParamField>
+
+<ParamField body="authoredOn" type="string">
+  When the task was created
+</ParamField>
+
+<ParamField body="lastModified" type="string">
+  Most recent task modification timestamp
+</ParamField>
+
+<ParamField body="requester" type="object">
+  Who is requesting the task
+</ParamField>
+
+<ParamField body="owner" type="object" required>
+  Practitioner responsible for the task: `{"reference": "Practitioner/{userId}"}`
+</ParamField>
+
+<ParamField body="restriction" type="object">
+  Constraints on task execution (period, recipients)
+</ParamField>
+
+<ParamField body="note" type="array">
+  Comments about the task
+</ParamField>
+
+#### Example Request
+
+```bash cURL
+curl -X POST https://api.example.com/api/fhir/Task \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "resourceType": "Task",
+    "status": "requested",
+    "intent": "order",
+    "priority": "urgent",
+    "code": {
+      "coding": [{
+        "system": "http://hl7.org/fhir/CodeSystem/task-code",
+        "code": "fulfill",
+        "display": "Fulfill the focal request"
+      }]
+    },
+    "description": "Review abnormal lab results and contact patient",
+    "for": {
+      "reference": "Patient/65f1234567890abcdef12345"
+    },
+    "authoredOn": "2024-03-15T08:00:00Z",
+    "requester": {
+      "reference": "Practitioner/65f9876543210abcdef98765"
+    },
+    "owner": {
+      "reference": "Practitioner/65f9876543210abcdef98765"
+    },
+    "restriction": {
+      "period": {
+        "end": "2024-03-16T17:00:00Z"
+      }
+    },
+    "note": [{
+      "text": "HbA1c results came back at 8.2%, need to discuss treatment adjustment"
+    }]
+  }'
+```
+
+#### Response
+
+```json
+{
+  "resourceType": "Task",
+  "id": "65f8901234567abcdef89012",
+  "status": "requested",
+  "intent": "order",
+  "priority": "urgent",
+  "code": {
+    "coding": [{
+      "system": "http://hl7.org/fhir/CodeSystem/task-code",
+      "code": "fulfill",
+      "display": "Fulfill the focal request"
+    }]
+  },
+  "description": "Review abnormal lab results and contact patient",
+  "for": {
+    "reference": "Patient/65f1234567890abcdef12345"
+  },
+  "authoredOn": "2024-03-15T08:00:00Z",
+  "owner": {
+    "reference": "Practitioner/65f9876543210abcdef98765"
+  }
+}
+```
+
+---
+
+### List Tasks
+
+```http
+GET /api/fhir/Task
+Authorization: Bearer {token}
+```
+
+<ParamField query="owner" type="string">
+  Filter by task owner: `Practitioner/{userId}`
+</ParamField>
+
+<ParamField query="status" type="string">
+  Filter by task status
+</ParamField>
+
+<ParamField query="priority" type="string">
+  Filter by priority level
+</ParamField>
+
+<ParamField query="patient" type="string">
+  Filter by patient: `Patient/{id}`
+</ParamField>
+
+<Note>
+  **Practitioners** can only see tasks assigned to themselves. **Admins** and **auditors** can see all tasks.
+</Note>
+
+#### Example Request
+
+```bash
+curl -X GET "https://api.example.com/api/fhir/Task?owner=Practitioner/65f9876543210abcdef98765&status=requested" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+---
+
+### Get Task by ID
+
+```http
+GET /api/fhir/Task/:id
+Authorization: Bearer {token}
+```
+
+<Note>
+  **Practitioners** can only retrieve their own tasks.
+</Note>
+
+---
+
+### Update Task
+
+<Note>
+  **Practitioners** can only update tasks assigned to themselves. Typically used to change status (e.g., from `requested` to `in-progress` to `completed`).
+</Note>
+
+```http
+PUT /api/fhir/Task/:id
+Authorization: Bearer {token}
+Content-Type: application/json
+```
+
+#### Example: Mark Task as Completed
+
+```bash
+curl -X PUT https://api.example.com/api/fhir/Task/65f8901234567abcdef89012 \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "resourceType": "Task",
+    "id": "65f8901234567abcdef89012",
+    "status": "completed",
+    "intent": "order",
+    "priority": "urgent",
+    "description": "Review abnormal lab results and contact patient",
+    "for": {
+      "reference": "Patient/65f1234567890abcdef12345"
+    },
+    "owner": {
+      "reference": "Practitioner/65f9876543210abcdef98765"
+    },
+    "note": [{
+      "text": "Contacted patient, scheduled follow-up appointment"
+    }]
+  }'
+```
+
+---
+
+## Task Priority Levels
+
+| Priority | Description | Typical Use Case |
+|----------|-------------|------------------|
+| `routine` | Normal priority | Scheduled tasks, documentation |
+| `urgent` | Higher priority | Follow-up on test results |
+| `asap` | As soon as possible | Patient callbacks, medication issues |
+| `stat` | Immediate action required | Critical lab values, safety alerts |
+
+## Task Status Workflow
+
+<Steps>
+  <Step title="Requested">
+    Task has been created and assigned
+  </Step>
+  <Step title="Accepted">
+    Practitioner acknowledges the task
+  </Step>
+  <Step title="In Progress">
+    Work on the task has begun
+  </Step>
+  <Step title="Completed">
+    Task has been finished successfully
+  </Step>
+</Steps>
+
+## Common Task Categories
+
+<CardGroup cols={2}>
+  <Card title="Care Coordination" icon="users">
+    Coordinate care across providers
+  </Card>
+  <Card title="Medication Reconciliation" icon="pills">
+    Review and update medication list
+  </Card>
+  <Card title="Lab Follow-up" icon="flask">
+    Review and act on lab results
+  </Card>
+  <Card title="Patient Outreach" icon="phone">
+    Contact patient for follow-up
+  </Card>
+  <Card title="Documentation" icon="file-medical">
+    Complete clinical documentation
+  </Card>
+  <Card title="Referral Management" icon="share-from-square">
+    Process specialist referrals
+  </Card>
+</CardGroup>
+
+## Role Permissions
+
+| Role | Create | Read | Update | Scope |
+|------|--------|------|--------|-------|
+| Admin | ✅ | ✅ | ✅ | All tasks |
+| Practitioner | ✅ | ✅ | ✅ | Own tasks only |
+| Auditor | ❌ | ✅ | ❌ | All tasks |
+
+<Warning>
+  Practitioners attempting to create or update tasks for other practitioners will receive a `403 Forbidden` error.
+</Warning>

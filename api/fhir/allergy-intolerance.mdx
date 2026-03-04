@@ -1,0 +1,200 @@
+---
+title: AllergyIntolerance Resource
+description: Patient allergy and intolerance records
+---
+
+The AllergyIntolerance resource records risks of harmful or undesirable reactions when exposed to substances. All records must reference a valid Patient.
+
+## Endpoints
+
+### Create AllergyIntolerance
+
+<Note>
+  Requires **admin** or **practitioner** role.
+</Note>
+
+```http
+POST /api/fhir/AllergyIntolerance
+Authorization: Bearer {token}
+Content-Type: application/json
+```
+
+<ParamField body="resourceType" type="string" required>
+  Must be `"AllergyIntolerance"`
+</ParamField>
+
+<ParamField body="clinicalStatus" type="object">
+  `active`, `inactive`, `resolved`
+</ParamField>
+
+<ParamField body="verificationStatus" type="object">
+  `unconfirmed`, `confirmed`, `refuted`, `entered-in-error`
+</ParamField>
+
+<ParamField body="type" type="string">
+  `allergy` or `intolerance`
+</ParamField>
+
+<ParamField body="category" type="array">
+  `food`, `medication`, `environment`, `biologic`
+</ParamField>
+
+<ParamField body="criticality" type="string">
+  `low`, `high`, `unable-to-assess`
+</ParamField>
+
+<ParamField body="code" type="object" required>
+  Substance that causes the allergy
+</ParamField>
+
+<ParamField body="patient" type="object" required>
+  Reference to Patient: `{"reference": "Patient/{id}"}`
+</ParamField>
+
+<ParamField body="onsetDateTime" type="string">
+  When allergy/intolerance was identified
+</ParamField>
+
+<ParamField body="reaction" type="array">
+  Adverse reaction events
+</ParamField>
+
+#### Example Request
+
+```bash cURL
+curl -X POST https://api.example.com/api/fhir/AllergyIntolerance \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "resourceType": "AllergyIntolerance",
+    "clinicalStatus": {
+      "coding": [{
+        "system": "http://terminology.hl7.org/CodeSystem/allergyintolerance-clinical",
+        "code": "active"
+      }]
+    },
+    "verificationStatus": {
+      "coding": [{
+        "system": "http://terminology.hl7.org/CodeSystem/allergyintolerance-verification",
+        "code": "confirmed"
+      }]
+    },
+    "type": "allergy",
+    "category": ["medication"],
+    "criticality": "high",
+    "code": {
+      "coding": [{
+        "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+        "code": "7980",
+        "display": "Penicillin"
+      }]
+    },
+    "patient": {
+      "reference": "Patient/65f1234567890abcdef12345"
+    },
+    "onsetDateTime": "2020-06-10",
+    "reaction": [{
+      "substance": {
+        "coding": [{
+          "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+          "code": "7980",
+          "display": "Penicillin"
+        }]
+      },
+      "manifestation": [{
+        "coding": [{
+          "system": "http://snomed.info/sct",
+          "code": "271807003",
+          "display": "Rash"
+        }]
+      }],
+      "severity": "moderate"
+    }]
+  }'
+```
+
+#### Response
+
+```json
+{
+  "resourceType": "AllergyIntolerance",
+  "id": "65f4567890123abcdef45678",
+  "clinicalStatus": {
+    "coding": [{
+      "system": "http://terminology.hl7.org/CodeSystem/allergyintolerance-clinical",
+      "code": "active"
+    }]
+  },
+  "type": "allergy",
+  "category": ["medication"],
+  "criticality": "high",
+  "code": {
+    "coding": [{
+      "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+      "code": "7980",
+      "display": "Penicillin"
+    }]
+  },
+  "patient": {
+    "reference": "Patient/65f1234567890abcdef12345"
+  }
+}
+```
+
+---
+
+### List AllergyIntolerances
+
+```http
+GET /api/fhir/AllergyIntolerance
+Authorization: Bearer {token}
+```
+
+<ParamField query="patient" type="string">
+  Filter by patient: `Patient/{id}`
+</ParamField>
+
+<ParamField query="clinical-status" type="string">
+  Filter by status: `active`, `inactive`, `resolved`
+</ParamField>
+
+---
+
+### Get AllergyIntolerance by ID
+
+```http
+GET /api/fhir/AllergyIntolerance/:id
+Authorization: Bearer {token}
+```
+
+---
+
+### Update AllergyIntolerance
+
+```http
+PUT /api/fhir/AllergyIntolerance/:id
+Authorization: Bearer {token}
+Content-Type: application/json
+```
+
+---
+
+## Criticality Levels
+
+<Warning>
+  **High criticality** allergies should be prominently displayed in the patient chart to prevent adverse reactions.
+</Warning>
+
+| Level | Description |
+|-------|-------------|
+| `low` | Low risk of harmful outcome |
+| `high` | High risk of serious or life-threatening reaction |
+| `unable-to-assess` | Unable to assess risk |
+
+## Role Permissions
+
+| Role | Create | Read | Update |
+|------|--------|------|--------|
+| Admin | ✅ | ✅ | ✅ |
+| Practitioner | ✅ | ✅ | ✅ |
+| Auditor | ❌ | ✅ | ❌ |

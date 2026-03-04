@@ -1,0 +1,635 @@
+---
+title: Audit Logs
+description: HIPAA Security Rule compliant audit trail of all access and modification activity
+---
+
+OmniEHR implements comprehensive audit logging to meet HIPAA Security Rule requirements for tracking access to protected health information (PHI).
+
+## Overview
+
+Every API request to FHIR resources and administrative endpoints is automatically logged with actor information, resource details, and outcome status.
+
+<CardGroup cols={2}>
+  <Card title="Automatic Logging" icon="robot">
+    All API requests are automatically logged via middleware
+  </Card>
+  
+  <Card title="Non-Blocking" icon="forward">
+    Audit logs don't impact clinical workflow performance
+  </Card>
+  
+  <Card title="Comprehensive Tracking" icon="magnifying-glass">
+    Actor, action, resource, timestamp, outcome, and network details
+  </Card>
+  
+  <Card title="HIPAA Compliant" icon="shield-check">
+    Meets HIPAA Security Rule audit trail requirements
+  </Card>
+</CardGroup>
+
+## Audit Log Data Model
+
+```javascript AuditLog Schema
+const auditLogSchema = new mongoose.Schema({
+  actorUserId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User"
+  },
+  actorEmail: String,
+  actorRole: String,
+  action: {
+    type: String,
+    required: true
+  },
+  resourceType: String,
+  resourceId: String,
+  method: {
+    type: String,
+    required: true
+  },
+  path: {
+    type: String,
+    required: true
+  },
+  statusCode: {
+    type: Number,
+    required: true
+  },
+  outcome: {
+    type: String,
+    enum: ["success", "failure"],
+    required: true
+  },
+  ipAddress: String,
+  userAgent: String
+}, {
+  timestamps: true
+});
+
+// Indexes for efficient querying
+auditLogSchema.index({ createdAt: -1 });
+auditLogSchema.index({ actorUserId: 1, createdAt: -1 });
+```
+
+### Audit Log Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `actorUserId` | ObjectId | ID of the user who performed the action |
+| `actorEmail` | String | Email of the actor |
+| `actorRole` | String | Role of the actor (admin, practitioner, auditor) |
+| `action` | String | Type of action (read, create, update, delete) |
+| `resourceType` | String | FHIR resource type or endpoint |
+| `resourceId` | String | ID of the specific resource accessed |
+| `method` | String | HTTP method (GET, POST, PUT, DELETE) |
+| `path` | String | Full request path |
+| `statusCode` | Number | HTTP response status code |
+| `outcome` | String | success or failure |
+| `ipAddress` | String | Client IP address |
+| `userAgent` | String | Client user agent string |
+| `createdAt` | Date | Timestamp when action occurred |
+
+## Audit Middleware
+
+The audit middleware intercepts all FHIR and admin API requests:
+
+```javascript audit.js
+import AuditLog from "../models/AuditLog.js";
+
+const methodToAction = {
+  GET: "read",
+  POST: "create",
+  PUT: "update",
+  PATCH: "update",
+  DELETE: "delete"
+};
+
+const parseRouteContext = (urlPath) => {
+  const cleanPath = (urlPath || "").split("?")[0];
+  const segments = cleanPath.split("/").filter(Boolean);
+
+  if (segments.length < 2 || segments[0] !== "api") {
+    return { resourceType: "Unknown", resourceId: undefined };
+  }
+
+  const resourceType = segments[2] || segments[1] || "Unknown";
+  const resourceId = segments[3];
+
+  return { resourceType, resourceId };
+};
+
+export const requestAuditTrail = (req, res, next) => {
+  const watched = req.originalUrl.startsWith("/api/fhir") || 
+                  req.originalUrl.startsWith("/api/admin");
+
+  if (!watched) {
+    return next();
+  }
+
+  res.on("finish", () => {
+    const { resourceType, resourceId } = parseRouteContext(req.originalUrl);
+    const outcome = res.statusCode >= 200 && res.statusCode < 400 ? 
+      "success" : "failure";
+
+    AuditLog.create({
+      actorUserId: req.user?.sub,
+      actorEmail: req.user?.email,
+      actorRole: req.user?.role,
+      action: methodToAction[req.method] || "unknown",
+      resourceType,
+      resourceId,
+      method: req.method,
+      path: req.originalUrl,
+      statusCode: res.statusCode,
+      outcome,
+      ipAddress: req.ip,
+      userAgent: req.get("user-agent")
+    }).catch(() => {
+      // Non-blocking by design to avoid impacting clinical workflows.
+    });
+  });
+
+  return next();
+};
+```
+
+<Note>
+  **Non-Blocking Design**: Audit log creation failures don't impact API responses. Logs are created asynchronously after the response is sent.
+</Note>
+
+## Middleware Integration
+
+The audit middleware is registered globally in the application:
+
+```javascript app.js
+import express from "express";
+import { requestAuditTrail } from "./middleware/audit.js";
+import fhirRoutes from "./routes/fhirRoutes.js";
+import adminRoutes from "./routes/adminRoutes.js";
+
+const app = express();
+
+// Apply audit middleware globally
+app.use(requestAuditTrail);
+
+// Register routes
+app.use("/api/fhir", fhirRoutes);
+app.use("/api/admin", adminRoutes);
+
+export default app;
+```
+
+## Audit Page UI
+
+The audit page displays a paginated view of all audit log entries:
+
+```jsx AuditPage.jsx
+import { useEffect, useState } from "react";
+import { adminApi } from "../api.js";
+import { useAuth } from "../context/AuthContext.jsx";
+
+const AuditPage = () => {
+  const { token } = useAuth();
+  const [rows, setRows] = useState([]);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [limit, setLimit] = useState(25);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const query = `?page=${page}&limit=${limit}`;
+        const response = await adminApi.listAuditLogs(token, query);
+        setRows(response.data || []);
+        setTotal(response.total || 0);
+        setLimit(response.limit || 25);
+      } catch (err) {
+        setError(err.message || "Unable to load audit logs");
+      }
+    };
+
+    load();
+  }, [page, limit, token]);
+
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+
+  return (
+    <section className="stack-gap">
+      <h1>Audit logs</h1>
+      <p className="muted-text">
+        HIPAA Security Rule audit trail of access and modification activity.
+      </p>
+      {error ? <p className="banner banner-error">{error}</p> : null}
+
+      <article className="card">
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Timestamp</th>
+                <th>Actor</th>
+                <th>Role</th>
+                <th>Action</th>
+                <th>Resource</th>
+                <th>Status</th>
+                <th>Outcome</th>
+                <th>Path</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((entry) => (
+                <tr key={entry._id}>
+                  <td>{entry.createdAt}</td>
+                  <td>{entry.actorEmail || "Unknown"}</td>
+                  <td>{entry.actorRole || "-"}</td>
+                  <td>{entry.action}</td>
+                  <td>
+                    {entry.resourceType}
+                    {entry.resourceId ? `/${entry.resourceId}` : ""}
+                  </td>
+                  <td>{entry.statusCode}</td>
+                  <td>{entry.outcome}</td>
+                  <td>{entry.path}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="pagination">
+          <button
+            type="button"
+            className="button button-secondary"
+            onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+            disabled={page <= 1}
+          >
+            Previous
+          </button>
+          <span>
+            Page {page} of {totalPages}
+          </span>
+          <button
+            type="button"
+            className="button button-secondary"
+            onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
+            disabled={page >= totalPages}
+          >
+            Next
+          </button>
+        </div>
+      </article>
+    </section>
+  );
+};
+
+export default AuditPage;
+```
+
+### Pagination Controls
+
+The audit page includes pagination for efficient browsing:
+
+```jsx Pagination
+const totalPages = Math.max(1, Math.ceil(total / limit));
+
+<div className="pagination">
+  <button
+    type="button"
+    className="button button-secondary"
+    onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+    disabled={page <= 1}
+  >
+    Previous
+  </button>
+  <span>
+    Page {page} of {totalPages}
+  </span>
+  <button
+    type="button"
+    className="button button-secondary"
+    onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
+    disabled={page >= totalPages}
+  >
+    Next
+  </button>
+</div>
+```
+
+## Backend API Endpoint
+
+```javascript adminRoutes.js
+import express from "express";
+import { authenticate, authorize } from "../middleware/auth.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
+import AuditLog from "../models/AuditLog.js";
+
+const router = express.Router();
+
+router.use(authenticate);
+
+router.get(
+  "/audit-logs",
+  authorize("admin", "auditor"),
+  asyncHandler(async (req, res) => {
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 25));
+    const skip = (page - 1) * limit;
+
+    const [logs, total] = await Promise.all([
+      AuditLog.find({})
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      AuditLog.countDocuments({})
+    ]);
+
+    res.json({
+      data: logs,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit)
+    });
+  })
+);
+
+export default router;
+```
+
+### Query Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `page` | Number | 1 | Page number (1-indexed) |
+| `limit` | Number | 25 | Results per page (max 100) |
+
+## Action Types
+
+Audit logs categorize actions based on HTTP methods:
+
+| HTTP Method | Action Type | Description |
+|-------------|-------------|-------------|
+| GET | `read` | Reading/viewing resources |
+| POST | `create` | Creating new resources |
+| PUT | `update` | Updating existing resources |
+| PATCH | `update` | Partial updates |
+| DELETE | `delete` | Deleting resources |
+
+## Outcome Classification
+
+```javascript Outcome Determination
+const outcome = res.statusCode >= 200 && res.statusCode < 400 ? 
+  "success" : "failure";
+```
+
+| Status Code Range | Outcome | Description |
+|-------------------|---------|-------------|
+| 200-399 | success | Successful operations |
+| 400-599 | failure | Client or server errors |
+
+## Example Audit Logs
+
+### Successful Patient Read
+
+```json
+{
+  "_id": "507f1f77bcf86cd799439011",
+  "actorUserId": "507f1f77bcf86cd799439020",
+  "actorEmail": "dr.jane.doe@example.com",
+  "actorRole": "practitioner",
+  "action": "read",
+  "resourceType": "Patient",
+  "resourceId": "507f1f77bcf86cd799439030",
+  "method": "GET",
+  "path": "/api/fhir/Patient/507f1f77bcf86cd799439030",
+  "statusCode": 200,
+  "outcome": "success",
+  "ipAddress": "192.168.1.100",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+  "createdAt": "2026-03-04T10:30:00.000Z"
+}
+```
+
+### Failed Authorization Attempt
+
+```json
+{
+  "_id": "507f1f77bcf86cd799439012",
+  "actorUserId": "507f1f77bcf86cd799439021",
+  "actorEmail": "user@example.com",
+  "actorRole": "auditor",
+  "action": "update",
+  "resourceType": "Patient",
+  "resourceId": "507f1f77bcf86cd799439030",
+  "method": "PUT",
+  "path": "/api/fhir/Patient/507f1f77bcf86cd799439030",
+  "statusCode": 403,
+  "outcome": "failure",
+  "ipAddress": "192.168.1.101",
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+  "createdAt": "2026-03-04T10:31:00.000Z"
+}
+```
+
+### Patient $everything Operation
+
+```json
+{
+  "_id": "507f1f77bcf86cd799439013",
+  "actorUserId": "507f1f77bcf86cd799439020",
+  "actorEmail": "dr.jane.doe@example.com",
+  "actorRole": "practitioner",
+  "action": "read",
+  "resourceType": "Patient",
+  "resourceId": "507f1f77bcf86cd799439030",
+  "method": "GET",
+  "path": "/api/fhir/Patient/507f1f77bcf86cd799439030/$everything",
+  "statusCode": 200,
+  "outcome": "success",
+  "ipAddress": "192.168.1.100",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+  "createdAt": "2026-03-04T10:32:00.000Z"
+}
+```
+
+## HIPAA Compliance
+
+OmniEHR audit logs meet HIPAA Security Rule requirements:
+
+<AccordionGroup>
+  <Accordion title="§164.312(b) Audit Controls">
+    Implements hardware, software, and/or procedural mechanisms that record and examine activity in information systems that contain or use electronic protected health information.
+    
+    **Implementation**: Automatic logging of all FHIR API access via middleware with comprehensive actor and resource tracking.
+  </Accordion>
+  
+  <Accordion title="§164.308(a)(1)(ii)(D) Information System Activity Review">
+    Implement procedures to regularly review records of information system activity, such as audit logs, access reports, and security incident tracking reports.
+    
+    **Implementation**: Paginated audit log interface accessible to admin and auditor roles for regular review.
+  </Accordion>
+  
+  <Accordion title="§164.308(a)(5)(ii)(C) Log-in Monitoring">
+    Procedures for monitoring log-in attempts and reporting discrepancies.
+    
+    **Implementation**: All authentication attempts and access to PHI are logged with actor identification, timestamps, and outcomes.
+  </Accordion>
+</AccordionGroup>
+
+## Watched Endpoints
+
+The audit middleware monitors the following endpoint patterns:
+
+<Tabs>
+  <Tab title="FHIR Resources">
+    ```
+    /api/fhir/Patient
+    /api/fhir/Patient/:id
+    /api/fhir/Patient/:id/$everything
+    /api/fhir/Observation
+    /api/fhir/Condition
+    /api/fhir/AllergyIntolerance
+    /api/fhir/MedicationRequest
+    /api/fhir/Encounter
+    /api/fhir/Appointment
+    /api/fhir/Task
+    ```
+  </Tab>
+  
+  <Tab title="Admin Endpoints">
+    ```
+    /api/admin/users
+    /api/admin/users/:id
+    /api/admin/practitioners
+    /api/admin/audit-logs
+    ```
+  </Tab>
+</Tabs>
+
+## Access Control
+
+Audit log access is restricted to authorized roles:
+
+```javascript Role-Based Access
+router.get(
+  "/audit-logs",
+  authorize("admin", "auditor"),
+  asyncHandler(async (req, res) => {
+    // ... audit log retrieval
+  })
+);
+```
+
+**Authorized Roles**: admin, auditor
+
+<Warning>
+  Audit logs contain sensitive information about system access. Only admin and auditor roles can view audit logs.
+</Warning>
+
+## Performance Considerations
+
+### Non-Blocking Architecture
+
+Audit log creation uses asynchronous processing:
+
+```javascript Non-Blocking Log Creation
+AuditLog.create({
+  actorUserId: req.user?.sub,
+  actorEmail: req.user?.email,
+  // ... additional fields
+}).catch(() => {
+  // Non-blocking by design to avoid impacting clinical workflows.
+});
+```
+
+If audit log creation fails, the API response proceeds normally without error.
+
+### Database Indexes
+
+Audit logs use indexes for efficient querying:
+
+```javascript
+auditLogSchema.index({ createdAt: -1 });  // For chronological sorting
+auditLogSchema.index({ actorUserId: 1, createdAt: -1 });  // For user-specific queries
+```
+
+## Future Enhancements
+
+Potential enhancements to the audit system:
+
+<CardGroup cols={2}>
+  <Card title="Advanced Filtering" icon="filter">
+    Filter by date range, actor, resource type, action, or outcome
+  </Card>
+  
+  <Card title="Audit Report Export" icon="file-export">
+    Export audit logs to CSV or PDF for compliance reporting
+  </Card>
+  
+  <Card title="Real-Time Alerts" icon="bell">
+    Alert administrators to suspicious access patterns
+  </Card>
+  
+  <Card title="Retention Policies" icon="clock-rotate-left">
+    Automatic archival of old audit logs per compliance requirements
+  </Card>
+</CardGroup>
+
+## API Reference
+
+### Audit Log Endpoints
+
+| Method | Endpoint | Description | Required Role |
+|--------|----------|-------------|---------------|
+| GET | `/api/admin/audit-logs` | List audit logs (paginated) | admin, auditor |
+
+### Response Format
+
+```json
+{
+  "data": [
+    {
+      "_id": "507f1f77bcf86cd799439011",
+      "actorUserId": "507f1f77bcf86cd799439020",
+      "actorEmail": "dr.jane.doe@example.com",
+      "actorRole": "practitioner",
+      "action": "read",
+      "resourceType": "Patient",
+      "resourceId": "507f1f77bcf86cd799439030",
+      "method": "GET",
+      "path": "/api/fhir/Patient/507f1f77bcf86cd799439030",
+      "statusCode": 200,
+      "outcome": "success",
+      "ipAddress": "192.168.1.100",
+      "userAgent": "Mozilla/5.0...",
+      "createdAt": "2026-03-04T10:30:00.000Z"
+    }
+  ],
+  "total": 1523,
+  "page": 1,
+  "limit": 25,
+  "totalPages": 61
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Patient Management" icon="user" href="/features/patient-management">
+    Learn about patient registry and demographics
+  </Card>
+  
+  <Card title="FHIR Resources" icon="database" href="/features/fhir-resources">
+    View all supported FHIR resources
+  </Card>
+  
+  <Card title="Security" icon="shield" href="/security/hipaa-overview">
+    Explore authentication and authorization
+  </Card>
+  
+  <Card title="API Reference" icon="code" href="/api/overview">
+    Complete API documentation
+  </Card>
+</CardGroup>

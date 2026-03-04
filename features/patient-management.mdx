@@ -1,0 +1,502 @@
+---
+title: Patient Management
+description: Comprehensive patient registry, demographics, PID assignment, and patient portal registration
+---
+
+OmniEHR provides a complete patient management system with automated identifier generation, encrypted PHI storage, and a public-facing patient portal for self-registration.
+
+## Patient Registry
+
+The patient registry maintains a searchable database of all patients with comprehensive demographic information.
+
+### Key Features
+
+- **Centralized Registry**: View all registered patients with sortable columns
+- **Search by Identifier**: Query patients by MRN or PID
+- **Role-Based Creation**: Only admin users can create new patient records
+- **Encrypted PHI**: All personally identifiable information is encrypted at rest
+
+### Patient Data Model
+
+Patients are stored following the FHIR R4 Patient resource specification:
+
+```javascript Patient Schema
+const patientSchema = {
+  resourceType: "Patient",
+  pid: String,              // Auto-generated 7-digit PID
+  identifier: [             // MRN, PID, and custom identifiers
+    {
+      system: "urn:mrn",
+      value: "MRN12345"
+    },
+    {
+      system: "urn:pid",
+      value: "1000042"
+    }
+  ],
+  active: Boolean,
+  gender: String,
+  birthDate: Date,
+  phi: {                   // Encrypted PHI fields
+    givenName: EncryptedField,
+    familyName: EncryptedField,
+    phone: EncryptedField,
+    email: EncryptedField,
+    line1: EncryptedField,
+    city: EncryptedField,
+    state: EncryptedField,
+    postalCode: EncryptedField
+  }
+}
+```
+
+### Patient Registry UI
+
+The registry displays a comprehensive view of all patients:
+
+```jsx PatientsPage.jsx
+const loadPatients = async () => {
+  const bundle = await fhirApi.listPatients(token);
+  setPatients(bundleToResources(bundle));
+};
+
+// Display in table format
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>PID</th>
+      <th>MRN</th>
+      <th>Gender</th>
+      <th>Birth Date</th>
+      <th>Phone</th>
+      <th>Email</th>
+    </tr>
+  </thead>
+  <tbody>
+    {patients.map((patient) => (
+      <tr key={patient.id}>
+        <td>
+          <Link to={`/patients/${patient.id}`}>
+            {patientFullName(patient)}
+          </Link>
+        </td>
+        <td>{patientPid(patient)}</td>
+        <td>{patientMrn(patient)}</td>
+        {/* ... */}
+      </tr>
+    ))}
+  </tbody>
+</table>
+```
+
+## Demographics Management
+
+OmniEHR captures comprehensive demographic information for each patient.
+
+### Collected Demographics
+
+<CardGroup cols={2}>
+  <Card title="Identification" icon="id-card">
+    - Given name and family name
+    - Medical Record Number (MRN)
+    - Auto-generated Patient ID (PID)
+  </Card>
+  
+  <Card title="Personal Details" icon="user">
+    - Gender (male, female, other, unknown)
+    - Date of birth
+    - Active status flag
+  </Card>
+  
+  <Card title="Contact Information" icon="phone">
+    - Phone number
+    - Email address
+    - All encrypted at rest
+  </Card>
+  
+  <Card title="Address" icon="location-dot">
+    - Street address
+    - City, state, postal code
+    - Encrypted for HIPAA compliance
+  </Card>
+</CardGroup>
+
+### Creating a Patient
+
+Patient creation is restricted to admin users and captures FHIR-compliant data:
+
+```jsx Patient Creation Form
+const onSubmit = async (event) => {
+  event.preventDefault();
+  
+  // Build FHIR Patient resource
+  const resource = {
+    resourceType: "Patient",
+    active: true,
+    identifier: form.mrn ? [
+      {
+        system: "urn:mrn",
+        value: form.mrn
+      }
+    ] : undefined,
+    name: [{
+      family: form.familyName,
+      given: form.givenName ? [form.givenName] : []
+    }],
+    telecom: [
+      { system: "phone", value: form.phone },
+      { system: "email", value: form.email }
+    ],
+    gender: form.gender,
+    birthDate: form.birthDate || undefined,
+    address: form.line1 || form.city ? [{
+      line: form.line1 ? [form.line1] : [],
+      city: form.city,
+      state: form.state,
+      postalCode: form.postalCode
+    }] : []
+  };
+  
+  await fhirApi.createPatient(token, resource);
+};
+```
+
+## Automatic PID Assignment
+
+Every patient receives a unique 7-digit Patient ID (PID) upon registration. PIDs are generated using a monotonic counter with collision detection.
+
+### PID Generation Service
+
+```javascript patientPidService.js
+const PID_MIN = 1000000;
+const PID_MAX = 9999999;
+const PID_SYSTEM = "urn:pid";
+
+export const generateNextPatientPid = async () => {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const existing = await Counter.findOneAndUpdate(
+      { key: "patient_pid" },
+      { $inc: { seq: 1 } },
+      { new: true }
+    );
+
+    if (existing) {
+      if (existing.seq < PID_MIN) {
+        await Counter.updateOne(
+          { _id: existing._id },
+          { $set: { seq: PID_MIN - 1 } }
+        );
+        continue;
+      }
+
+      if (existing.seq > PID_MAX) {
+        throw new ApiError(500, "Patient PID range exhausted");
+      }
+
+      return String(existing.seq);
+    }
+
+    // Create initial counter if it doesn't exist
+    const created = await Counter.create({ 
+      key: "patient_pid", 
+      seq: PID_MIN 
+    });
+    return String(created.seq);
+  }
+
+  throw new ApiError(500, "Unable to generate patient PID");
+};
+```
+
+### PID Identifier Management
+
+PIDs are automatically added to the patient's identifier array:
+
+```javascript
+export const ensurePidIdentifier = (identifiers = [], pid) => {
+  const safe = Array.isArray(identifiers) ? identifiers : [];
+
+  // Remove any existing PID identifiers
+  const filtered = safe.filter((identifier) => {
+    const system = String(identifier?.system || "").trim();
+    return system !== PID_SYSTEM && identifier.value !== pid;
+  });
+
+  // Prepend PID as primary identifier
+  return [
+    { system: PID_SYSTEM, value: pid }, 
+    ...filtered
+  ];
+};
+```
+
+<Note>
+  **PID Range**: PIDs range from 1000000 to 9999999, providing capacity for 9 million unique patients.
+</Note>
+
+## Patient Portal Registration
+
+OmniEHR includes a public-facing patient portal for self-service registration without authentication.
+
+### Public Registration Flow
+
+```jsx PatientPortalPage.jsx
+const onSubmit = async (event) => {
+  event.preventDefault();
+  
+  try {
+    const response = await publicApi.registerPatient(form);
+    setRegistrationResult(response);
+    setForm(emptyForm);
+  } catch (err) {
+    setError(err.message || "Unable to complete registration");
+  }
+};
+
+return (
+  <div className="login-layout">
+    <section className="card">
+      <h1>Patient Portal Registration</h1>
+      <p className="muted-text">
+        Register as a new patient. A unique 7-digit PID is generated automatically.
+      </p>
+
+      <form onSubmit={onSubmit}>
+        <label>
+          Given name
+          <input value={form.givenName} required />
+        </label>
+        <label>
+          Family name
+          <input value={form.familyName} required />
+        </label>
+        <label>
+          Birth date
+          <input type="date" value={form.birthDate} required />
+        </label>
+        {/* Additional fields... */}
+        <button type="submit">
+          Register as patient
+        </button>
+      </form>
+    </section>
+
+    {registrationResult && (
+      <section className="card">
+        <h2>Registration successful</h2>
+        <p>
+          Your Patient ID (PID): <strong>{registrationResult.pid}</strong>
+        </p>
+        <p className="muted-text">
+          Keep this PID for future communication with your healthcare provider.
+        </p>
+      </section>
+    )}
+  </div>
+);
+```
+
+### Registration Fields
+
+<AccordionGroup>
+  <Accordion title="Required Fields">
+    - Given name
+    - Family name
+    - Birth date
+  </Accordion>
+  
+  <Accordion title="Optional Fields">
+    - Gender (defaults to "unknown")
+    - Phone number
+    - Email address
+    - Street address
+    - City, state, postal code
+  </Accordion>
+</AccordionGroup>
+
+## Patient Detail View
+
+Each patient has a comprehensive longitudinal chart view accessed at `/patients/:id`.
+
+### Patient $everything Operation
+
+The detail view uses the FHIR `$everything` operation to load all related resources:
+
+```javascript
+const everythingBundle = await fhirApi.getPatientEverything(token, id);
+const split = splitEverythingBundle(everythingBundle);
+
+setChart({
+  patient: split.patient,
+  conditions: split.conditions,
+  allergies: split.allergies,
+  medications: split.medications,
+  encounters: split.encounters,
+  observations: split.observations,
+  appointments: split.appointments,
+  tasks: split.tasks
+});
+```
+
+### Backend Implementation
+
+```javascript fhirRoutes.js
+router.get(
+  "/Patient/:id/$everything",
+  authorize(...readRoles),
+  asyncHandler(async (req, res) => {
+    const patient = await Patient.findById(req.params.id);
+
+    if (!patient) {
+      throw new ApiError(404, "Patient not found");
+    }
+
+    const [observations, conditions, allergies, medications, 
+           encounters, appointments, tasks] = await Promise.all([
+      Observation.find({ "subject.reference": req.params.id })
+        .sort({ effectiveDateTime: -1 }),
+      Condition.find({ "subject.reference": req.params.id })
+        .sort({ recordedDate: -1 }),
+      AllergyIntolerance.find({ "patient.reference": req.params.id })
+        .sort({ recordedDate: -1 }),
+      MedicationRequest.find({ "subject.reference": req.params.id })
+        .sort({ authoredOn: -1 }),
+      Encounter.find({ "subject.reference": req.params.id })
+        .sort({ periodStart: -1 }),
+      Appointment.find({ "patient.reference": req.params.id })
+        .sort({ start: -1 }),
+      Task.find({ "for.reference": req.params.id })
+        .sort({ dueDate: 1 })
+    ]);
+
+    const allResources = [
+      patientDocToResource(patient),
+      ...conditions.map(conditionDocToResource),
+      ...allergies.map(allergyIntoleranceDocToResource),
+      ...medications.map(medicationRequestDocToResource),
+      ...encounters.map(encounterDocToResource),
+      ...observations.map(observationDocToResource),
+      ...appointments.map(appointmentDocToResource),
+      ...tasks.map(taskDocToResource)
+    ];
+
+    res.json({
+      resourceType: "Bundle",
+      type: "searchset",
+      total: allResources.length,
+      entry: allResources.map((resource) => ({
+        fullUrl: `${baseUrl(req)}/${resource.resourceType}/${resource.id}`,
+        resource
+      }))
+    });
+  })
+);
+```
+
+## Security and Compliance
+
+### PHI Encryption
+
+All personally identifiable information is encrypted using AES-256-GCM:
+
+```javascript Patient Model
+const encryptedFieldSchema = new mongoose.Schema({
+  iv: { type: String, default: "" },
+  authTag: { type: String, default: "" },
+  content: { type: String, default: "" }
+}, { _id: false });
+
+phi: {
+  givenName: encryptedFieldSchema,
+  familyName: encryptedFieldSchema,
+  phone: encryptedFieldSchema,
+  email: encryptedFieldSchema,
+  line1: encryptedFieldSchema,
+  city: encryptedFieldSchema,
+  state: encryptedFieldSchema,
+  postalCode: encryptedFieldSchema
+}
+```
+
+### Role-Based Access Control
+
+<CodeGroup>
+```javascript Patient Creation (Admin Only)
+router.post(
+  "/Patient",
+  authorize("admin"),
+  asyncHandler(async (req, res) => {
+    const resource = patientResourceSchema.parse(req.body);
+    const docPayload = patientResourceToDoc(resource);
+    const pid = await generateNextPatientPid();
+    
+    const patient = await Patient.create({
+      ...docPayload,
+      pid,
+      identifier: ensurePidIdentifier(docPayload.identifier, pid),
+      createdBy: req.user.sub,
+      updatedBy: req.user.sub
+    });
+
+    res.status(201).json(patientDocToResource(patient));
+  })
+);
+```
+
+```javascript Patient Read (All Roles)
+const readRoles = ["admin", "practitioner", "auditor"];
+
+router.get(
+  "/Patient/:id",
+  authorize(...readRoles),
+  asyncHandler(async (req, res) => {
+    const patient = await Patient.findById(req.params.id);
+
+    if (!patient) {
+      throw new ApiError(404, "Patient not found");
+    }
+
+    res.json(patientDocToResource(patient));
+  })
+);
+```
+</CodeGroup>
+
+## API Reference
+
+### Patient Endpoints
+
+| Method | Endpoint | Description | Required Role |
+|--------|----------|-------------|---------------|
+| POST | `/api/fhir/Patient` | Create new patient | admin |
+| GET | `/api/fhir/Patient` | List all patients | admin, practitioner, auditor |
+| GET | `/api/fhir/Patient/:id` | Get patient by ID | admin, practitioner, auditor |
+| PUT | `/api/fhir/Patient/:id` | Update patient | admin |
+| GET | `/api/fhir/Patient/:id/$everything` | Get patient with all related resources | admin, practitioner, auditor |
+
+### Public Endpoints
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| POST | `/api/public/register-patient` | Self-service patient registration | No |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="FHIR Resources" icon="database" href="/features/fhir-resources">
+    Explore all FHIR resources supported in OmniEHR
+  </Card>
+  
+  <Card title="Audit Logs" icon="clipboard-list" href="/features/audit-logs">
+    Learn about HIPAA-compliant audit logging
+  </Card>
+  
+  <Card title="Clinical Workflows" icon="stethoscope" href="/features/clinical-workflows">
+    View task management and care coordination features
+  </Card>
+  
+  <Card title="API Reference" icon="code" href="/api/overview">
+    Complete API documentation for integrations
+  </Card>
+</CardGroup>

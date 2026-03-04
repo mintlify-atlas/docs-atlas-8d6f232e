@@ -1,0 +1,401 @@
+---
+title: 'Authentication'
+description: 'JWT authentication, login flow, and token management in OmniEHR'
+icon: 'key'
+---
+
+## JWT Authentication
+
+OmniEHR uses JSON Web Tokens (JWT) for stateless authentication. All API requests (except login) require a valid JWT bearer token in the `Authorization` header.
+
+### Authentication Flow
+
+<Steps>
+  <Step title="User Login">
+    Client sends credentials to `/api/auth/login`
+  </Step>
+  <Step title="Token Generation">
+    Server validates credentials and generates JWT token
+  </Step>
+  <Step title="Token Storage">
+    Client stores token (typically in localStorage or memory)
+  </Step>
+  <Step title="Authenticated Requests">
+    Client includes token in Authorization header for all subsequent requests
+  </Step>
+  <Step title="Token Verification">
+    Server verifies token signature and expiration on each request
+  </Step>
+</Steps>
+
+## Login Endpoint
+
+### POST /api/auth/login
+
+Authenticate with email and password to receive a JWT token.
+
+```javascript
+// From ~/workspace/source/server/src/routes/authRoutes.js:23
+router.post(
+  "/login",
+  asyncHandler(async (req, res) => {
+    const payload = loginSchema.parse(req.body);
+    const user = await User.findOne({ email: payload.email });
+
+    if (!user || !user.active) {
+      throw new ApiError(401, "Invalid credentials");
+    }
+
+    const passwordOk = await bcrypt.compare(payload.password, user.passwordHash);
+
+    if (!passwordOk) {
+      throw new ApiError(401, "Invalid credentials");
+    }
+
+    user.lastLoginAt = new Date();
+    await user.save();
+
+    const token = signAccessToken({
+      sub: String(user._id),
+      email: user.email,
+      role: user.role,
+      name: user.fullName
+    });
+
+    res.json({ token, user: formatUser(user) });
+  })
+);
+```
+
+**Request:**
+
+```bash
+curl -X POST https://api.omniehr.com/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "doctor@example.com",
+    "password": "secure-password"
+  }'
+```
+
+**Response:**
+
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "id": "507f1f77bcf86cd799439011",
+    "email": "doctor@example.com",
+    "fullName": "Dr. Jane Smith",
+    "organization": "General Hospital",
+    "role": "practitioner",
+    "active": true,
+    "lastLoginAt": "2026-03-04T10:30:00.000Z",
+    "createdAt": "2025-01-15T08:00:00.000Z"
+  }
+}
+```
+
+<Note>
+The login endpoint updates the user's `lastLoginAt` timestamp for audit purposes (see `~/workspace/source/server/src/routes/authRoutes.js:39`).
+</Note>
+
+### Security Features
+
+1. **Password Hashing**: Passwords are hashed with bcrypt (cost factor 12)
+2. **Active User Check**: Inactive users cannot authenticate
+3. **Generic Error Messages**: Returns "Invalid credentials" for both invalid email and password to prevent user enumeration
+
+## Token Structure
+
+### JWT Payload
+
+From `~/workspace/source/server/src/routes/authRoutes.js:42`, the JWT contains:
+
+```javascript
+const token = signAccessToken({
+  sub: String(user._id),      // Subject: User ID
+  email: user.email,           // User email
+  role: user.role,             // User role (admin/practitioner/auditor)
+  name: user.fullName          // Full name for display
+});
+```
+
+### Token Generation
+
+From `~/workspace/source/server/src/utils/jwt.js:4`:
+
+```javascript
+export const signAccessToken = (payload) => {
+  return jwt.sign(payload, env.jwtSecret, { expiresIn: env.jwtExpiresIn });
+};
+```
+
+**Environment Variables:**
+- `JWT_SECRET` - Secret key for signing tokens (keep secure!)
+- `JWT_EXPIRES_IN` - Token expiration time (e.g., "8h", "1d")
+
+<Warning>
+The `JWT_SECRET` must be a strong, random string. Never commit it to version control. Use a secrets manager in production.
+</Warning>
+
+## Authentication Middleware
+
+All protected routes use the `authenticate` middleware from `~/workspace/source/server/src/middleware/auth.js:4`:
+
+```javascript
+export const authenticate = (req, _res, next) => {
+  const authorization = req.headers.authorization;
+
+  if (!authorization?.startsWith("Bearer ")) {
+    return next(new ApiError(401, "Missing bearer token"));
+  }
+
+  const token = authorization.slice(7);
+
+  try {
+    const payload = verifyAccessToken(token);
+    req.user = payload;
+    return next();
+  } catch {
+    return next(new ApiError(401, "Invalid or expired token"));
+  }
+};
+```
+
+### Token Verification
+
+From `~/workspace/source/server/src/utils/jwt.js:8`:
+
+```javascript
+export const verifyAccessToken = (token) => {
+  return jwt.verify(token, env.jwtSecret);
+};
+```
+
+The verification:
+- ✅ Validates token signature
+- ✅ Checks expiration time
+- ✅ Throws error if invalid or expired
+
+## Making Authenticated Requests
+
+### Using the Token
+
+Include the JWT in the `Authorization` header with the `Bearer` scheme:
+
+```bash
+curl https://api.omniehr.com/api/auth/me \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### JavaScript Example
+
+```javascript
+const response = await fetch('https://api.omniehr.com/api/fhir/Patient', {
+  headers: {
+    'Authorization': `Bearer ${token}`,
+    'Content-Type': 'application/json'
+  }
+});
+```
+
+### React Hook Example
+
+```javascript
+import { useState, useEffect } from 'react';
+
+function useAuth() {
+  const [token, setToken] = useState(localStorage.getItem('token'));
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    if (token) {
+      // Verify token is still valid
+      fetch('/api/auth/me', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+        .then(res => res.json())
+        .then(data => setUser(data.user))
+        .catch(() => {
+          // Token expired or invalid
+          setToken(null);
+          localStorage.removeItem('token');
+        });
+    }
+  }, [token]);
+
+  const login = async (email, password) => {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+    
+    const data = await res.json();
+    localStorage.setItem('token', data.token);
+    setToken(data.token);
+    setUser(data.user);
+  };
+
+  const logout = () => {
+    localStorage.removeItem('token');
+    setToken(null);
+    setUser(null);
+  };
+
+  return { user, token, login, logout };
+}
+```
+
+## Get Current User
+
+### GET /api/auth/me
+
+Retrieve the currently authenticated user's information.
+
+From `~/workspace/source/server/src/routes/authRoutes.js:53`:
+
+```javascript
+router.get(
+  "/me",
+  authenticate,
+  asyncHandler(async (req, res) => {
+    const user = await User.findById(req.user.sub);
+
+    if (!user) {
+      throw new ApiError(404, "User not found");
+    }
+
+    res.json({ user: formatUser(user) });
+  })
+);
+```
+
+**Request:**
+
+```bash
+curl https://api.omniehr.com/api/auth/me \
+  -H "Authorization: Bearer <token>"
+```
+
+**Response:**
+
+```json
+{
+  "user": {
+    "id": "507f1f77bcf86cd799439011",
+    "email": "doctor@example.com",
+    "fullName": "Dr. Jane Smith",
+    "organization": "General Hospital",
+    "role": "practitioner",
+    "active": true,
+    "lastLoginAt": "2026-03-04T10:30:00.000Z",
+    "createdAt": "2025-01-15T08:00:00.000Z"
+  }
+}
+```
+
+## Error Handling
+
+### Authentication Errors
+
+| Status Code | Error | Description |
+|-------------|-------|-------------|
+| 401 | Missing bearer token | No Authorization header or invalid format |
+| 401 | Invalid or expired token | Token signature invalid or expired |
+| 401 | Invalid credentials | Wrong email or password during login |
+| 404 | User not found | Authenticated user no longer exists in database |
+
+### Example Error Response
+
+```json
+{
+  "status": "error",
+  "message": "Invalid or expired token",
+  "statusCode": 401
+}
+```
+
+## Token Expiration
+
+<Tabs>
+  <Tab title="Handling Expiration">
+    When a token expires, the API returns a 401 error. Clients should:
+    
+    1. Catch 401 errors globally
+    2. Redirect to login page
+    3. Clear stored token
+    4. Prompt user to re-authenticate
+
+    ```javascript
+    // Axios interceptor example
+    axios.interceptors.response.use(
+      response => response,
+      error => {
+        if (error.response?.status === 401) {
+          localStorage.removeItem('token');
+          window.location.href = '/login';
+        }
+        return Promise.reject(error);
+      }
+    );
+    ```
+  </Tab>
+  <Tab title="Configuring Expiration">
+    Set token expiration in your `.env` file:
+
+    ```bash
+    # Recommended: 8 hours for healthcare applications
+    JWT_EXPIRES_IN=8h
+
+    # Other examples:
+    # JWT_EXPIRES_IN=1d   # 1 day
+    # JWT_EXPIRES_IN=30m  # 30 minutes
+    # JWT_EXPIRES_IN=7d   # 7 days
+    ```
+
+    <Warning>
+    Longer expiration times increase security risk. Balance convenience with security based on your use case.
+    </Warning>
+  </Tab>
+  <Tab title="Token Refresh">
+    OmniEHR currently does not implement refresh tokens. When the access token expires, users must log in again.
+
+    To implement refresh tokens, you would need to:
+    1. Generate both access and refresh tokens on login
+    2. Store refresh token securely (httpOnly cookie)
+    3. Create `/api/auth/refresh` endpoint
+    4. Return new access token when refresh token is valid
+
+    This is recommended for production deployments to improve user experience.
+  </Tab>
+</Tabs>
+
+## Security Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Store Tokens Securely" icon="vault">
+    Use httpOnly cookies or memory storage. Avoid localStorage for high-security applications.
+  </Card>
+  <Card title="Use HTTPS Only" icon="lock">
+    Never send tokens over unencrypted connections. Always use HTTPS in production.
+  </Card>
+  <Card title="Short Expiration" icon="clock">
+    Use reasonable token expiration times (8 hours recommended for healthcare).
+  </Card>
+  <Card title="Validate on Each Request" icon="shield-check">
+    Server validates token signature and expiration on every request.
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="RBAC" href="/security/rbac" icon="users">
+    Learn about role-based authorization
+  </Card>
+  <Card title="HIPAA Overview" href="/security/hipaa-overview" icon="shield-check">
+    Understand HIPAA compliance measures
+  </Card>
+</CardGroup>

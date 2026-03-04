@@ -1,0 +1,197 @@
+---
+title: Observation Resource
+description: Clinical observations, vital signs, and laboratory results
+---
+
+The Observation resource represents clinical measurements and assertions. All observations must reference a valid Patient resource.
+
+## Endpoints
+
+### Create Observation
+
+<Note>
+  Requires **admin** or **practitioner** role.
+</Note>
+
+```http
+POST /api/fhir/Observation
+Authorization: Bearer {token}
+Content-Type: application/json
+```
+
+<ParamField body="resourceType" type="string" required>
+  Must be `"Observation"`
+</ParamField>
+
+<ParamField body="status" type="string" required>
+  Observation status: `registered`, `preliminary`, `final`, `amended`, `corrected`, `cancelled`, `entered-in-error`, `unknown`
+</ParamField>
+
+<ParamField body="code" type="object" required>
+  What was observed (LOINC, SNOMED CT, or local codes)
+</ParamField>
+
+<ParamField body="subject" type="object" required>
+  Reference to Patient in format `{"reference": "Patient/{id}"}`
+</ParamField>
+
+<ParamField body="effectiveDateTime" type="string">
+  Clinically relevant time/date for the observation
+</ParamField>
+
+<ParamField body="valueQuantity" type="object">
+  Actual result value with unit
+</ParamField>
+
+<ParamField body="valueString" type="string">
+  Result as a string (alternative to valueQuantity)
+</ParamField>
+
+<ParamField body="interpretation" type="array">
+  High, low, normal, etc.
+</ParamField>
+
+<ParamField body="note" type="array">
+  Comments about the observation
+</ParamField>
+
+#### Example Request
+
+```bash cURL
+curl -X POST https://api.example.com/api/fhir/Observation \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "resourceType": "Observation",
+    "status": "final",
+    "code": {
+      "coding": [{
+        "system": "http://loinc.org",
+        "code": "8867-4",
+        "display": "Heart rate"
+      }]
+    },
+    "subject": {
+      "reference": "Patient/65f1234567890abcdef12345"
+    },
+    "effectiveDateTime": "2024-03-15T10:30:00Z",
+    "valueQuantity": {
+      "value": 72,
+      "unit": "beats/minute",
+      "system": "http://unitsofmeasure.org",
+      "code": "/min"
+    },
+    "interpretation": [{
+      "coding": [{
+        "system": "http://terminology.hl7.org/CodeSystem/v3-ObservationInterpretation",
+        "code": "N",
+        "display": "Normal"
+      }]
+    }]
+  }'
+```
+
+#### Response
+
+```json
+{
+  "resourceType": "Observation",
+  "id": "65f2345678901abcdef23456",
+  "status": "final",
+  "code": {
+    "coding": [{
+      "system": "http://loinc.org",
+      "code": "8867-4",
+      "display": "Heart rate"
+    }]
+  },
+  "subject": {
+    "reference": "Patient/65f1234567890abcdef12345"
+  },
+  "effectiveDateTime": "2024-03-15T10:30:00Z",
+  "valueQuantity": {
+    "value": 72,
+    "unit": "beats/minute",
+    "system": "http://unitsofmeasure.org",
+    "code": "/min"
+  }
+}
+```
+
+---
+
+### List Observations
+
+```http
+GET /api/fhir/Observation
+Authorization: Bearer {token}
+```
+
+<ParamField query="subject" type="string">
+  Filter by patient: `Patient/{id}`
+</ParamField>
+
+<ParamField query="_count" type="number">
+  Results per page (default: 20)
+</ParamField>
+
+<ParamField query="_offset" type="number">
+  Pagination offset (default: 0)
+</ParamField>
+
+#### Example Request
+
+```bash
+curl -X GET "https://api.example.com/api/fhir/Observation?subject=Patient/65f1234567890abcdef12345" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+---
+
+### Get Observation by ID
+
+```http
+GET /api/fhir/Observation/:id
+Authorization: Bearer {token}
+```
+
+---
+
+### Update Observation
+
+<Note>
+  Requires **admin** or **practitioner** role.
+</Note>
+
+```http
+PUT /api/fhir/Observation/:id
+Authorization: Bearer {token}
+Content-Type: application/json
+```
+
+---
+
+## Common Vital Signs
+
+<CardGroup cols={2}>
+  <Card title="Blood Pressure" icon="heart-pulse">
+    LOINC: 85354-9 (systolic), 85354-9 (diastolic)
+  </Card>
+  <Card title="Heart Rate" icon="heart">
+    LOINC: 8867-4
+  </Card>
+  <Card title="Temperature" icon="temperature-half">
+    LOINC: 8310-5
+  </Card>
+  <Card title="Oxygen Saturation" icon="lungs">
+    LOINC: 2708-6
+  </Card>
+</CardGroup>
+
+## Role Permissions
+
+| Role | Create | Read | Update |
+|------|--------|------|--------|
+| Admin | ✅ | ✅ | ✅ |
+| Practitioner | ✅ | ✅ | ✅ |
+| Auditor | ❌ | ✅ | ❌ |

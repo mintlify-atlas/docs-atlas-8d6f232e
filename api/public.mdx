@@ -1,0 +1,585 @@
+---
+title: 'Public API'
+description: 'Publicly accessible endpoints for patient self-registration'
+---
+
+<Note>
+  Public endpoints do not require authentication and are designed for patient-facing applications and portals.
+</Note>
+
+## Patient Registration
+
+<CodeGroup>
+```bash POST /public/patient-register
+curl -X POST https://api.omniehr.com/public/patient-register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "givenName": "John",
+    "familyName": "Doe",
+    "birthDate": "1985-06-15",
+    "gender": "male",
+    "phone": "+1-555-0123",
+    "email": "john.doe@example.com",
+    "line1": "123 Main Street",
+    "city": "Springfield",
+    "state": "IL",
+    "postalCode": "62701"
+  }'
+```
+</CodeGroup>
+
+Register a new patient in the system. This endpoint is designed for patient portal self-registration.
+
+### Request Body
+
+<ParamField body="givenName" type="string" required>
+  Patient's given (first) name. Must be 1-120 characters.
+</ParamField>
+
+<ParamField body="familyName" type="string" required>
+  Patient's family (last) name. Must be 1-120 characters.
+</ParamField>
+
+<ParamField body="birthDate" type="string" required>
+  Patient's date of birth in YYYY-MM-DD format (e.g., "1985-06-15").
+</ParamField>
+
+<ParamField body="gender" type="string" default="unknown">
+  Patient's gender. Must be one of: `male`, `female`, `other`, `unknown`. Defaults to `unknown`.
+</ParamField>
+
+<ParamField body="phone" type="string">
+  Patient's phone number. Maximum 40 characters. Optional.
+</ParamField>
+
+<ParamField body="email" type="string">
+  Patient's email address. Must be a valid email format if provided. Optional.
+</ParamField>
+
+<ParamField body="line1" type="string">
+  First line of patient's address (street address). Maximum 200 characters. Optional.
+</ParamField>
+
+<ParamField body="city" type="string">
+  Patient's city. Maximum 80 characters. Optional.
+</ParamField>
+
+<ParamField body="state" type="string">
+  Patient's state/province. Maximum 40 characters. Optional.
+</ParamField>
+
+<ParamField body="postalCode" type="string">
+  Patient's postal/ZIP code. Maximum 20 characters. Optional.
+</ParamField>
+
+### Response
+
+<ResponseField name="message" type="string" required>
+  Success message confirming registration
+</ResponseField>
+
+<ResponseField name="pid" type="string" required>
+  Patient identifier (PID) - a unique sequential identifier assigned to the patient (e.g., "PAT-00001234")
+</ResponseField>
+
+<ResponseField name="patientId" type="string" required>
+  FHIR resource ID (MongoDB ObjectId) for the patient record
+</ResponseField>
+
+<ResponseField name="patient" type="object" required>
+  Complete FHIR Patient resource
+  
+  <ResponseField name="resourceType" type="string" required>
+    Always "Patient"
+  </ResponseField>
+  
+  <ResponseField name="id" type="string" required>
+    FHIR resource ID
+  </ResponseField>
+  
+  <ResponseField name="identifier" type="array" required>
+    Array of patient identifiers
+    
+    <ResponseField name="system" type="string" required>
+      Identifier system (e.g., "https://omniehr.com/patient-id")
+    </ResponseField>
+    
+    <ResponseField name="value" type="string" required>
+      Identifier value (PID)
+    </ResponseField>
+  </ResponseField>
+  
+  <ResponseField name="active" type="boolean" required>
+    Patient record active status (always true for new registrations)
+  </ResponseField>
+  
+  <ResponseField name="name" type="array" required>
+    Array of patient names
+    
+    <ResponseField name="family" type="string">
+      Family name
+    </ResponseField>
+    
+    <ResponseField name="given" type="array">
+      Array of given names
+    </ResponseField>
+  </ResponseField>
+  
+  <ResponseField name="telecom" type="array">
+    Array of contact information
+    
+    <ResponseField name="system" type="string">
+      Contact system: "phone" or "email"
+    </ResponseField>
+    
+    <ResponseField name="value" type="string">
+      Contact value
+    </ResponseField>
+  </ResponseField>
+  
+  <ResponseField name="gender" type="string">
+    Patient's gender
+  </ResponseField>
+  
+  <ResponseField name="birthDate" type="string">
+    Patient's birth date (YYYY-MM-DD)
+  </ResponseField>
+  
+  <ResponseField name="address" type="array">
+    Array of addresses
+    
+    <ResponseField name="line" type="array">
+      Array of address lines
+    </ResponseField>
+    
+    <ResponseField name="city" type="string">
+      City
+    </ResponseField>
+    
+    <ResponseField name="state" type="string">
+      State/province
+    </ResponseField>
+    
+    <ResponseField name="postalCode" type="string">
+      Postal code
+    </ResponseField>
+  </ResponseField>
+</ResponseField>
+
+### Example Response
+
+```json
+{
+  "message": "Registration completed",
+  "pid": "PAT-00001234",
+  "patientId": "65a1b2c3d4e5f6a7b8c9d0e4",
+  "patient": {
+    "resourceType": "Patient",
+    "id": "65a1b2c3d4e5f6a7b8c9d0e4",
+    "identifier": [
+      {
+        "system": "https://omniehr.com/patient-id",
+        "value": "PAT-00001234"
+      }
+    ],
+    "active": true,
+    "name": [
+      {
+        "family": "Doe",
+        "given": ["John"]
+      }
+    ],
+    "telecom": [
+      {
+        "system": "phone",
+        "value": "+1-555-0123"
+      },
+      {
+        "system": "email",
+        "value": "john.doe@example.com"
+      }
+    ],
+    "gender": "male",
+    "birthDate": "1985-06-15",
+    "address": [
+      {
+        "line": ["123 Main Street"],
+        "city": "Springfield",
+        "state": "IL",
+        "postalCode": "62701"
+      }
+    ]
+  }
+}
+```
+
+### Minimal Registration Example
+
+Only required fields:
+
+```bash
+curl -X POST https://api.omniehr.com/public/patient-register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "givenName": "Jane",
+    "familyName": "Smith",
+    "birthDate": "1992-03-20"
+  }'
+```
+
+### Example Response (Minimal)
+
+```json
+{
+  "message": "Registration completed",
+  "pid": "PAT-00001235",
+  "patientId": "65a1b2c3d4e5f6a7b8c9d0e5",
+  "patient": {
+    "resourceType": "Patient",
+    "id": "65a1b2c3d4e5f6a7b8c9d0e5",
+    "identifier": [
+      {
+        "system": "https://omniehr.com/patient-id",
+        "value": "PAT-00001235"
+      }
+    ],
+    "active": true,
+    "name": [
+      {
+        "family": "Smith",
+        "given": ["Jane"]
+      }
+    ],
+    "telecom": [],
+    "gender": "unknown",
+    "birthDate": "1992-03-20",
+    "address": []
+  }
+}
+```
+
+---
+
+## Validation Rules
+
+<Warning>
+  All string fields are automatically trimmed of leading and trailing whitespace before validation.
+</Warning>
+
+### Name Validation
+
+- `givenName` and `familyName` must be at least 1 character
+- Maximum length: 120 characters
+- Both fields are required
+
+### Birth Date Validation
+
+- Must be in YYYY-MM-DD format (e.g., "1985-06-15")
+- Required field
+- Must be a valid calendar date
+
+### Gender Validation
+
+- Must be one of: `male`, `female`, `other`, `unknown`
+- Defaults to `unknown` if not provided
+- Optional field
+
+### Contact Information Validation
+
+- **Phone**: Maximum 40 characters, optional
+- **Email**: Must be valid email format if provided, optional
+
+### Address Validation
+
+- **line1**: Maximum 200 characters
+- **city**: Maximum 80 characters
+- **state**: Maximum 40 characters
+- **postalCode**: Maximum 20 characters
+- All address fields are optional
+
+---
+
+## Error Responses
+
+### 400 Bad Request
+
+Returned when validation fails.
+
+```json
+{
+  "error": "Validation failed",
+  "details": [
+    {
+      "field": "birthDate",
+      "message": "birthDate must be YYYY-MM-DD"
+    }
+  ]
+}
+```
+
+#### Common Validation Errors
+
+<ResponseField name="givenName validation">
+  ```json
+  {
+    "field": "givenName",
+    "message": "String must contain at least 1 character(s)"
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="familyName validation">
+  ```json
+  {
+    "field": "familyName",
+    "message": "String must contain at least 1 character(s)"
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="birthDate format">
+  ```json
+  {
+    "field": "birthDate",
+    "message": "birthDate must be YYYY-MM-DD"
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="email format">
+  ```json
+  {
+    "field": "email",
+    "message": "Invalid email"
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="gender enum">
+  ```json
+  {
+    "field": "gender",
+    "message": "Invalid enum value. Expected 'male' | 'female' | 'other' | 'unknown'"
+  }
+  ```
+</ResponseField>
+
+### 500 Internal Server Error
+
+Returned when an unexpected server error occurs.
+
+```json
+{
+  "error": "Internal server error"
+}
+```
+
+---
+
+## Patient Identifier (PID)
+
+<Note>
+  Every registered patient is automatically assigned a unique, sequential Patient Identifier (PID) in the format `PAT-########`.
+</Note>
+
+The PID system provides:
+
+- **Sequential numbering**: PIDs are assigned in order (PAT-00000001, PAT-00000002, etc.)
+- **Human-readable**: Easy to reference in conversations and documentation
+- **Unique**: Each patient receives exactly one PID that never changes
+- **FHIR compatible**: Stored as a standard FHIR identifier with system URL
+
+### PID in FHIR Resource
+
+The PID is always included in the patient's identifier array:
+
+```json
+{
+  "identifier": [
+    {
+      "system": "https://omniehr.com/patient-id",
+      "value": "PAT-00001234"
+    }
+  ]
+}
+```
+
+---
+
+## FHIR Compliance
+
+This endpoint creates FHIR R4-compliant Patient resources. The response includes:
+
+- Standard FHIR Patient resource structure
+- Proper identifier system for PIDs
+- Valid telecom and address arrays
+- Compliant name structure with family and given names
+- Standard gender and birthDate fields
+
+### Using the Patient Resource
+
+The returned patient resource can be:
+
+- Stored in patient-facing applications
+- Referenced in subsequent FHIR API calls using the `patientId`
+- Used to link clinical resources (Observations, Conditions, etc.)
+- Searched using the PID or FHIR resource ID
+
+### Example: Creating an Observation for a Registered Patient
+
+After registration, you can create clinical resources:
+
+```bash
+curl -X POST https://api.omniehr.com/fhir/Observation \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "resourceType": "Observation",
+    "status": "final",
+    "code": {
+      "coding": [{
+        "system": "http://loinc.org",
+        "code": "29463-7",
+        "display": "Body Weight"
+      }]
+    },
+    "subject": {
+      "reference": "Patient/65a1b2c3d4e5f6a7b8c9d0e4"
+    },
+    "valueQuantity": {
+      "value": 70.5,
+      "unit": "kg",
+      "system": "http://unitsofmeasure.org",
+      "code": "kg"
+    }
+  }'
+```
+
+---
+
+## Integration Examples
+
+### Patient Portal Registration Form
+
+```javascript
+const registerPatient = async (formData) => {
+  const response = await fetch('https://api.omniehr.com/public/patient-register', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      givenName: formData.firstName,
+      familyName: formData.lastName,
+      birthDate: formData.dob, // YYYY-MM-DD format
+      gender: formData.gender,
+      phone: formData.phone,
+      email: formData.email,
+      line1: formData.address,
+      city: formData.city,
+      state: formData.state,
+      postalCode: formData.zipCode
+    })
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error);
+  }
+
+  const result = await response.json();
+  
+  // Store PID and patient ID for future use
+  localStorage.setItem('patientId', result.patientId);
+  localStorage.setItem('pid', result.pid);
+  
+  return result;
+};
+```
+
+### React Registration Component
+
+```javascript
+import { useState } from 'react';
+
+function PatientRegistration() {
+  const [formData, setFormData] = useState({
+    givenName: '',
+    familyName: '',
+    birthDate: '',
+    gender: 'unknown',
+    phone: '',
+    email: '',
+    line1: '',
+    city: '',
+    state: '',
+    postalCode: ''
+  });
+
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch('https://api.omniehr.com/public/patient-register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error);
+      }
+
+      const result = await response.json();
+      console.log('Registration successful:', result.pid);
+      // Redirect to confirmation page or next step
+      
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      {error && <div className="error">{error}</div>}
+      
+      <input
+        type="text"
+        placeholder="First Name"
+        value={formData.givenName}
+        onChange={(e) => setFormData({...formData, givenName: e.target.value})}
+        required
+      />
+      
+      <input
+        type="text"
+        placeholder="Last Name"
+        value={formData.familyName}
+        onChange={(e) => setFormData({...formData, familyName: e.target.value})}
+        required
+      />
+      
+      <input
+        type="date"
+        value={formData.birthDate}
+        onChange={(e) => setFormData({...formData, birthDate: e.target.value})}
+        required
+      />
+      
+      {/* Additional form fields */}
+      
+      <button type="submit" disabled={loading}>
+        {loading ? 'Registering...' : 'Register'}
+      </button>
+    </form>
+  );
+}
+```

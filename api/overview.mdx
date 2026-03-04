@@ -1,0 +1,336 @@
+---
+title: API Overview
+description: OmniEHR FHIR-compliant REST API for healthcare data management
+---
+
+## Introduction
+
+The OmniEHR API provides a FHIR R4-compatible REST interface for managing electronic health records. All API endpoints are available under the `/api` base path and return JSON responses.
+
+## Base URL
+
+```
+https://your-domain.com/api
+```
+
+For local development:
+
+```
+http://localhost:3000/api
+```
+
+## API Routes Structure
+
+The API is organized into four main route groups:
+
+### Authentication Routes
+
+- **Base Path**: `/api/auth`
+- **Purpose**: User authentication and token management
+- **Rate Limit**: 100 requests per 15 minutes
+- **Authentication**: Not required for login, required for profile endpoints
+
+### FHIR Routes
+
+- **Base Path**: `/api/fhir`
+- **Purpose**: FHIR R4-compliant resource management
+- **Rate Limit**: None (protected by authentication and audit trail)
+- **Authentication**: Required (JWT Bearer token)
+- **Supported Resources**:
+  - Patient
+  - Observation
+  - Condition
+  - AllergyIntolerance
+  - MedicationRequest
+  - Encounter
+  - Appointment
+  - Task
+
+### Admin Routes
+
+- **Base Path**: `/api/admin`
+- **Purpose**: User management, practitioner directory, audit logs
+- **Rate Limit**: None (protected by authentication and role-based authorization)
+- **Authentication**: Required (admin or auditor roles)
+
+### Public Routes
+
+- **Base Path**: `/api/public`
+- **Purpose**: Patient self-registration
+- **Rate Limit**: 50 requests per 15 minutes
+- **Authentication**: Not required
+
+## FHIR Compliance
+
+### FHIR Version
+
+OmniEHR implements **FHIR R4 (4.0.1)** specification.
+
+### Capability Statement
+
+Query the server's capabilities:
+
+```bash
+curl -X GET https://your-domain.com/api/fhir/metadata \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+<ResponseField name="resourceType" type="string">
+  Always "CapabilityStatement"
+</ResponseField>
+
+<ResponseField name="fhirVersion" type="string">
+  FHIR version (4.0.1)
+</ResponseField>
+
+<ResponseField name="software" type="object">
+  <ResponseField name="name" type="string">
+    OmniEHR Core
+  </ResponseField>
+  <ResponseField name="version" type="string">
+    Current version (2.0.0)
+  </ResponseField>
+</ResponseField>
+
+<ResponseField name="rest" type="array">
+  Array of REST capabilities including supported resources and interactions
+</ResponseField>
+
+### Supported Interactions
+
+All FHIR resources support the following interactions:
+
+- **read**: Read a single resource by ID
+- **search-type**: Search for resources with query parameters
+- **create**: Create a new resource
+- **update**: Update an existing resource
+
+### Search Results Format
+
+Search operations return FHIR Bundle resources with type "searchset":
+
+```json
+{
+  "resourceType": "Bundle",
+  "type": "searchset",
+  "total": 10,
+  "timestamp": "2026-03-04T10:30:00Z",
+  "entry": [
+    {
+      "fullUrl": "https://your-domain.com/api/fhir/Patient/507f1f77bcf86cd799439011",
+      "resource": {
+        "resourceType": "Patient",
+        "id": "507f1f77bcf86cd799439011",
+        ...
+      },
+      "search": { "mode": "match" }
+    }
+  ]
+}
+```
+
+## Rate Limiting
+
+### Authentication Endpoints
+
+Rate limiting is configured in `/server/src/app.js:27-36`:
+
+<ParamField path="windowMs" type="number">
+  Time window: **15 minutes** (900,000 ms)
+</ParamField>
+
+<ParamField path="max" type="number">
+  Maximum requests: **100** per window
+</ParamField>
+
+<ParamField path="standardHeaders" type="boolean">
+  Returns `RateLimit-*` headers
+</ParamField>
+
+### Public Endpoints
+
+Rate limiting is configured in `/server/src/app.js:38-47`:
+
+<ParamField path="windowMs" type="number">
+  Time window: **15 minutes** (900,000 ms)
+</ParamField>
+
+<ParamField path="max" type="number">
+  Maximum requests: **50** per window
+</ParamField>
+
+### Rate Limit Headers
+
+When rate limiting is active, responses include:
+
+```
+RateLimit-Limit: 100
+RateLimit-Remaining: 95
+RateLimit-Reset: 1709550000
+```
+
+### Rate Limit Exceeded
+
+When the rate limit is exceeded, the API returns:
+
+```json
+{
+  "statusCode": 429,
+  "message": "Too many requests, please try again later."
+}
+```
+
+## Security Features
+
+### Helmet.js
+
+Security headers are enforced via Helmet middleware (`/server/src/app.js:16`):
+
+- Content Security Policy
+- DNS Prefetch Control
+- Frame Options
+- HSTS (HTTP Strict Transport Security)
+- IE No Open
+- X-Powered-By header removal
+
+### CORS Configuration
+
+CORS is configured in `/server/src/app.js:17-23`:
+
+```javascript
+cors({
+  origin: env.corsOrigin,
+  credentials: true
+})
+```
+
+Configure allowed origins via the `CORS_ORIGIN` environment variable.
+
+### Request Body Size Limit
+
+JSON request bodies are limited to **1MB** (`/server/src/app.js:24`).
+
+### Audit Trail
+
+All authenticated FHIR and admin requests are logged via the `requestAuditTrail` middleware (`/server/src/app.js:49`):
+
+- Actor information (user ID, email, role)
+- Resource type and action
+- Request timestamp
+- Outcome (success/failure)
+- IP address and user agent
+
+Audit logs are accessible via `/api/admin/audit-logs` for admin and auditor roles.
+
+## Health Check
+
+Verify API availability:
+
+```bash
+curl https://your-domain.com/api/health
+```
+
+**Response:**
+
+```json
+{
+  "status": "ok",
+  "timestamp": "2026-03-04T10:30:00.000Z"
+}
+```
+
+<ResponseField name="status" type="string">
+  Server health status ("ok" if running)
+</ResponseField>
+
+<ResponseField name="timestamp" type="string">
+  Current server time in ISO 8601 format
+</ResponseField>
+
+## Error Handling
+
+All errors follow a consistent format:
+
+```json
+{
+  "statusCode": 400,
+  "message": "Validation error message",
+  "errors": [
+    {
+      "field": "email",
+      "message": "Invalid email format"
+    }
+  ]
+}
+```
+
+### Common HTTP Status Codes
+
+| Status Code | Meaning |
+|------------|--------|
+| `200` | Success |
+| `201` | Resource created |
+| `400` | Bad request (validation error) |
+| `401` | Unauthorized (missing or invalid token) |
+| `403` | Forbidden (insufficient permissions) |
+| `404` | Resource not found |
+| `409` | Conflict (e.g., duplicate resource) |
+| `429` | Too many requests (rate limit exceeded) |
+| `500` | Internal server error |
+
+## Environment Configuration
+
+Required environment variables (from `/server/src/config/env.js`):
+
+<ParamField path="NODE_ENV" type="string" required>
+  Environment (development, production)
+</ParamField>
+
+<ParamField path="PORT" type="number" required>
+  Server port (e.g., 3000)
+</ParamField>
+
+<ParamField path="MONGODB_URI" type="string" required>
+  MongoDB connection string
+</ParamField>
+
+<ParamField path="JWT_SECRET" type="string" required>
+  Secret key for JWT signing
+</ParamField>
+
+<ParamField path="JWT_EXPIRES_IN" type="string" required>
+  Token expiration (e.g., "24h", "7d")
+</ParamField>
+
+<ParamField path="PHI_ENCRYPTION_KEY" type="string" required>
+  Encryption key for Protected Health Information (PHI)
+</ParamField>
+
+<ParamField path="CORS_ORIGIN" type="string">
+  Allowed CORS origin (defaults to http://localhost:5173)
+</ParamField>
+
+## Request Logging
+
+All requests are logged using Morgan with the "combined" format (`/server/src/app.js:25`):
+
+```
+:remote-addr - :remote-user [:date[clf]] ":method :url HTTP/:http-version" :status :res[content-length] ":referrer" ":user-agent"
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="lock" href="/api/authentication">
+    Learn how to authenticate and manage JWT tokens
+  </Card>
+  <Card title="FHIR Resources" icon="hospital" href="/api/fhir/patient">
+    Explore FHIR resource endpoints
+  </Card>
+  <Card title="Admin API" icon="user-shield" href="/api/admin">
+    User management and audit logs
+  </Card>
+  <Card title="Public API" icon="globe" href="/api/public">
+    Patient registration endpoints
+  </Card>
+</CardGroup>

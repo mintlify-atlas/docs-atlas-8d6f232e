@@ -1,0 +1,627 @@
+---
+title: 'Role-Based Access Control'
+description: 'Admin, practitioner, and auditor roles with permission management in OmniEHR'
+icon: 'users'
+---
+
+## Overview
+
+OmniEHR implements Role-Based Access Control (RBAC) to enforce the principle of least privilege. Users are assigned one of three roles, each with specific permissions for accessing and modifying healthcare data.
+
+## User Roles
+
+From `~/workspace/source/server/src/models/User.js:26`, the system supports three roles:
+
+```javascript
+role: {
+  type: String,
+  enum: ["admin", "practitioner", "auditor"],
+  default: "practitioner"
+}
+```
+
+### Role Hierarchy
+
+<Steps>
+  <Step title="Admin">
+    Full system access - manage users, view all data, configure system
+  </Step>
+  <Step title="Practitioner">
+    Clinical access - create/update patients, appointments, and tasks within their scope
+  </Step>
+  <Step title="Auditor">
+    Read-only access - view data and audit logs for compliance monitoring
+  </Step>
+</Steps>
+
+## Role Definitions
+
+### Admin Role
+
+**Capabilities:**
+- ✅ Create, read, update user accounts
+- ✅ Read, create, update, delete all FHIR resources
+- ✅ View audit logs
+- ✅ Manage practitioners
+- ✅ Full access to patient data
+- ✅ System configuration
+
+**Restrictions:**
+- None - admins have unrestricted access
+
+**Use Cases:**
+- System administrators
+- Practice managers
+- IT support staff
+
+### Practitioner Role
+
+**Capabilities:**
+- ✅ Read, create, update FHIR resources (Patient, Appointment, Task, etc.)
+- ✅ View their own practitioner profile
+- ✅ Create appointments for their own schedule
+- ✅ Manage tasks assigned to them
+- ✅ Search and view patient data
+
+**Restrictions:**
+- ❌ Cannot create or modify other users
+- ❌ Cannot view audit logs
+- ❌ Cannot create patients (admin-only)
+- ❌ Cannot book appointments for other practitioners
+- ❌ Cannot access tasks assigned to other practitioners
+
+**Use Cases:**
+- Physicians
+- Nurses
+- Healthcare providers
+
+### Auditor Role
+
+**Capabilities:**
+- ✅ Read all FHIR resources
+- ✅ View audit logs
+- ✅ Search and view patient data
+- ✅ Generate compliance reports
+
+**Restrictions:**
+- ❌ Cannot create or modify any data
+- ❌ Cannot create or modify users
+- ❌ Read-only access to all resources
+
+**Use Cases:**
+- Compliance officers
+- Security auditors
+- Quality assurance staff
+
+## Authorization Middleware
+
+From `~/workspace/source/server/src/middleware/auth.js:22`, the `authorize` middleware enforces role-based permissions:
+
+```javascript
+export const authorize = (...roles) => (req, _res, next) => {
+  if (!req.user) {
+    return next(new ApiError(401, "Authentication required"));
+  }
+
+  if (!roles.includes(req.user.role)) {
+    return next(new ApiError(403, "Insufficient permissions"));
+  }
+
+  return next();
+};
+```
+
+### Usage Example
+
+```javascript
+import { authenticate, authorize } from './middleware/auth.js';
+
+// Only admins can access
+router.get('/admin/users', authenticate, authorize('admin'), handler);
+
+// Admins and auditors can access
+router.get('/admin/audit-logs', authenticate, authorize('admin', 'auditor'), handler);
+
+// Admins and practitioners can access
+router.post('/api/fhir/Appointment', authenticate, authorize('admin', 'practitioner'), handler);
+```
+
+## Permission Matrix
+
+From `~/workspace/source/server/src/routes/fhirRoutes.js:53`, the FHIR API defines role-based access:
+
+```javascript
+const readRoles = ["admin", "practitioner", "auditor"];
+const writeRoles = ["admin", "practitioner"];
+const patientWriteRoles = ["admin"];
+```
+
+### FHIR Resources
+
+| Resource | Create | Read | Update | Delete |
+|----------|--------|------|--------|--------|
+| **Patient** | Admin | All roles | Admin | Admin |
+| **Appointment** | Admin, Practitioner* | All roles | Admin, Practitioner* | Admin, Practitioner* |
+| **Task** | Admin, Practitioner* | All roles | Admin, Practitioner* | Admin, Practitioner* |
+| **Observation** | Admin, Practitioner | All roles | Admin, Practitioner | Admin, Practitioner |
+| **DiagnosticReport** | Admin, Practitioner | All roles | Admin, Practitioner | Admin, Practitioner |
+
+*With scope restrictions (see below)
+
+### Administrative Endpoints
+
+| Endpoint | Admin | Practitioner | Auditor |
+|----------|-------|--------------|----------|
+| GET /admin/users | ✅ | ❌ | ❌ |
+| POST /admin/users | ✅ | ❌ | ❌ |
+| GET /admin/practitioners | ✅ | ✅* | ❌ |
+| GET /admin/audit-logs | ✅ | ❌ | ✅ |
+
+*Practitioners can only see their own profile
+
+## Scope Restrictions
+
+### Practitioner Scope Limitations
+
+Practitioners have additional scope restrictions beyond role-based permissions:
+
+#### Appointment Booking
+
+From `~/workspace/source/server/src/routes/fhirRoutes.js:88`:
+
+```javascript
+const ensureBookingPermission = (requestingUser, practitionerUserId) => {
+  if (
+    requestingUser.role === "practitioner" &&
+    String(practitionerUserId) !== String(requestingUser.sub)
+  ) {
+    throw new ApiError(403, "Practitioners can only book appointments under their own schedule");
+  }
+};
+```
+
+**Rule**: Practitioners can only create/update appointments where they are the assigned practitioner.
+
+#### Appointment Queries
+
+From `~/workspace/source/server/src/routes/fhirRoutes.js:830`:
+
+```javascript
+if (req.user.role === "practitioner") {
+  filter.practitionerUserId = req.user.sub;
+}
+```
+
+**Rule**: When searching appointments, practitioners automatically see only their own appointments.
+
+#### Task Management
+
+From `~/workspace/source/server/src/routes/fhirRoutes.js:97`:
+
+```javascript
+const ensureTaskOwnerPermission = (requestingUser, ownerUserId) => {
+  if (requestingUser.role !== "practitioner") {
+    return;
+  }
+
+  if (!ownerUserId || String(ownerUserId) !== String(requestingUser.sub)) {
+    throw new ApiError(403, "Practitioners can only assign or update tasks under their own worklist");
+  }
+};
+```
+
+**Rule**: Practitioners can only create/update tasks assigned to themselves.
+
+#### Practitioner List Access
+
+From `~/workspace/source/server/src/routes/adminRoutes.js:67`:
+
+```javascript
+const filter =
+  req.user.role === "practitioner"
+    ? { _id: req.user.sub, role: "practitioner", active: true }
+    : { role: "practitioner", active: true };
+
+const practitioners = await User.find(filter).sort({ fullName: 1 });
+```
+
+**Rule**: Practitioners requesting the practitioner list only see themselves; admins see all practitioners.
+
+## Implementation Examples
+
+### Protecting Admin Routes
+
+From `~/workspace/source/server/src/routes/adminRoutes.js:26`:
+
+```javascript
+import { authenticate, authorize } from "../middleware/auth.js";
+
+const router = express.Router();
+
+// All admin routes require authentication
+router.use(authenticate);
+
+// Only admins can view all users
+router.get(
+  "/users",
+  authorize("admin"),
+  asyncHandler(async (_req, res) => {
+    const users = await User.find().sort({ createdAt: -1 });
+    res.json({
+      data: users.map(formatUser),
+      total: users.length
+    });
+  })
+);
+
+// Only admins can create users
+router.post(
+  "/users",
+  authorize("admin"),
+  asyncHandler(async (req, res) => {
+    // User creation logic
+  })
+);
+```
+
+### Multi-Role Access
+
+From `~/workspace/source/server/src/routes/adminRoutes.js:63`:
+
+```javascript
+// Admins and practitioners can access practitioner list
+router.get(
+  "/practitioners",
+  authorize("admin", "practitioner"),
+  asyncHandler(async (req, res) => {
+    // Scope filtering based on role
+    const filter =
+      req.user.role === "practitioner"
+        ? { _id: req.user.sub, role: "practitioner", active: true }
+        : { role: "practitioner", active: true };
+
+    const practitioners = await User.find(filter).sort({ fullName: 1 });
+
+    res.json({
+      data: practitioners.map(formatUser),
+      total: practitioners.length
+    });
+  })
+);
+```
+
+### Auditor Access
+
+From `~/workspace/source/server/src/routes/adminRoutes.js:81`:
+
+```javascript
+// Admins and auditors can view audit logs
+router.get(
+  "/audit-logs",
+  authorize("admin", "auditor"),
+  asyncHandler(async (req, res) => {
+    const pagination = paginationSchema.parse(req.query);
+    const filter = {};
+
+    // Apply filters from query parameters
+    if (req.query.outcome) {
+      filter.outcome = req.query.outcome;
+    }
+    if (req.query.resourceType) {
+      filter.resourceType = req.query.resourceType;
+    }
+
+    const [total, logs] = await Promise.all([
+      AuditLog.countDocuments(filter),
+      AuditLog.find(filter)
+        .sort({ createdAt: -1 })
+        .skip((pagination.page - 1) * pagination.limit)
+        .limit(pagination.limit)
+        .lean()
+    ]);
+
+    res.json({
+      page: pagination.page,
+      limit: pagination.limit,
+      total,
+      data: logs
+    });
+  })
+);
+```
+
+## User Management
+
+### Creating Users
+
+Only admins can create new users through the `/admin/users` endpoint:
+
+```bash
+curl -X POST https://api.omniehr.com/admin/users \
+  -H "Authorization: Bearer <admin-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "doctor@example.com",
+    "password": "secure-password",
+    "fullName": "Dr. Jane Smith",
+    "organization": "General Hospital",
+    "role": "practitioner"
+  }'
+```
+
+### Validation
+
+From `~/workspace/source/server/src/services/validation.js:17`, role validation is enforced:
+
+```javascript
+role: z.enum(["admin", "practitioner", "auditor"]).optional().default("practitioner")
+```
+
+**Valid roles**: `admin`, `practitioner`, `auditor`
+
+**Default role**: `practitioner` (safest default)
+
+### User Schema
+
+From `~/workspace/source/server/src/models/User.js:3`:
+
+```javascript
+const userSchema = new mongoose.Schema(
+  {
+    email: {
+      type: String,
+      required: true,
+      unique: true,
+      trim: true,
+      lowercase: true
+    },
+    fullName: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    organization: {
+      type: String,
+      trim: true,
+      default: ""
+    },
+    passwordHash: {
+      type: String,
+      required: true
+    },
+    role: {
+      type: String,
+      enum: ["admin", "practitioner", "auditor"],
+      default: "practitioner"
+    },
+    active: {
+      type: Boolean,
+      default: true
+    },
+    lastLoginAt: Date
+  },
+  {
+    timestamps: true
+  }
+);
+```
+
+## Testing Permissions
+
+### Testing Role Access
+
+```javascript
+import { authenticate, authorize } from './middleware/auth.js';
+import request from 'supertest';
+import app from './app.js';
+
+describe('RBAC Tests', () => {
+  let adminToken, practitionerToken, auditorToken;
+
+  beforeAll(async () => {
+    // Login as different roles
+    const adminRes = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'admin@example.com', password: 'password' });
+    adminToken = adminRes.body.token;
+
+    const practitionerRes = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'doctor@example.com', password: 'password' });
+    practitionerToken = practitionerRes.body.token;
+
+    const auditorRes = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'auditor@example.com', password: 'password' });
+    auditorToken = auditorRes.body.token;
+  });
+
+  test('Admin can access user list', async () => {
+    const res = await request(app)
+      .get('/admin/users')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+  });
+
+  test('Practitioner cannot access user list', async () => {
+    const res = await request(app)
+      .get('/admin/users')
+      .set('Authorization', `Bearer ${practitionerToken}`);
+    expect(res.status).toBe(403);
+    expect(res.body.message).toBe('Insufficient permissions');
+  });
+
+  test('Auditor can access audit logs', async () => {
+    const res = await request(app)
+      .get('/admin/audit-logs')
+      .set('Authorization', `Bearer ${auditorToken}`);
+    expect(res.status).toBe(200);
+  });
+
+  test('Practitioner cannot access audit logs', async () => {
+    const res = await request(app)
+      .get('/admin/audit-logs')
+      .set('Authorization', `Bearer ${practitionerToken}`);
+    expect(res.status).toBe(403);
+  });
+});
+```
+
+## Error Responses
+
+### Insufficient Permissions
+
+When a user attempts to access a resource they don't have permission for:
+
+```json
+{
+  "status": "error",
+  "message": "Insufficient permissions",
+  "statusCode": 403
+}
+```
+
+### Authentication Required
+
+When accessing a protected route without authentication:
+
+```json
+{
+  "status": "error",
+  "message": "Authentication required",
+  "statusCode": 401
+}
+```
+
+### Scope Violation Examples
+
+**Practitioner trying to book for another practitioner:**
+
+```json
+{
+  "status": "error",
+  "message": "Practitioners can only book appointments under their own schedule",
+  "statusCode": 403
+}
+```
+
+**Practitioner trying to assign task to another user:**
+
+```json
+{
+  "status": "error",
+  "message": "Practitioners can only assign or update tasks under their own worklist",
+  "statusCode": 403
+}
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Principle of Least Privilege" icon="shield">
+    Assign users the minimum role necessary for their job function
+  </Card>
+  <Card title="Regular Audits" icon="clipboard-check">
+    Periodically review user roles and deactivate unused accounts
+  </Card>
+  <Card title="Separation of Duties" icon="users">
+    Use auditor role for compliance monitoring, separate from admins
+  </Card>
+  <Card title="Scope Enforcement" icon="lock">
+    Apply additional scope restrictions beyond role-based permissions
+  </Card>
+</CardGroup>
+
+### Recommendations
+
+1. **Default to Practitioner**: New users should default to practitioner role
+2. **Limit Admin Access**: Only grant admin role to trusted personnel
+3. **Use Auditor Role**: Assign auditor role for compliance staff who need read-only access
+4. **Deactivate, Don't Delete**: Use the `active` flag to disable users instead of deleting
+5. **Log Role Changes**: Audit when user roles are modified
+
+<Warning>
+Changing a user's role takes effect immediately. The user must log in again to receive a new JWT with the updated role.
+</Warning>
+
+## Frontend Integration
+
+### Conditional UI Rendering
+
+```javascript
+import { useAuth } from './hooks/useAuth';
+
+function Dashboard() {
+  const { user } = useAuth();
+
+  return (
+    <div>
+      <h1>Dashboard</h1>
+      
+      {/* Show admin panel only to admins */}
+      {user.role === 'admin' && (
+        <AdminPanel />
+      )}
+
+      {/* Show clinical tools to admins and practitioners */}
+      {['admin', 'practitioner'].includes(user.role) && (
+        <ClinicalTools />
+      )}
+
+      {/* Show audit tools to admins and auditors */}
+      {['admin', 'auditor'].includes(user.role) && (
+        <AuditTools />
+      )}
+    </div>
+  );
+}
+```
+
+### Role-Based Routing
+
+```javascript
+import { Navigate } from 'react-router-dom';
+import { useAuth } from './hooks/useAuth';
+
+function ProtectedRoute({ children, allowedRoles }) {
+  const { user } = useAuth();
+
+  if (!user) {
+    return <Navigate to="/login" />;
+  }
+
+  if (allowedRoles && !allowedRoles.includes(user.role)) {
+    return <Navigate to="/unauthorized" />;
+  }
+
+  return children;
+}
+
+// Usage
+<Route path="/admin/users" element={
+  <ProtectedRoute allowedRoles={['admin']}>
+    <UsersPage />
+  </ProtectedRoute>
+} />
+```
+
+<Note>
+Frontend role checks are for UX only. Always enforce permissions on the backend as frontend code can be bypassed.
+</Note>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Authentication" href="/security/authentication" icon="key">
+    Learn about JWT authentication and login flow
+  </Card>
+  <Card title="HIPAA Overview" href="/security/hipaa-overview" icon="shield-check">
+    Understand HIPAA compliance measures
+  </Card>
+  <Card title="API Reference" href="/api/admin" icon="code">
+    View admin API endpoints
+  </Card>
+  <Card title="User Guide" href="/features/patient-management" icon="book">
+    Learn how to manage users
+  </Card>
+</CardGroup>

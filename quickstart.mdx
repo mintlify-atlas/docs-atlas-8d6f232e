@@ -1,80 +1,410 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart Guide
+description: Get OmniEHR running locally in under 5 minutes
 ---
 
-## Get started in three steps
+# Quickstart Guide
 
-Get your documentation site running locally and make your first customization.
+This guide will help you set up OmniEHR on your local machine. You'll have a fully functional FHIR-compatible EHR system running in minutes.
 
-### Step 1: Set up your local environment
+## Prerequisites
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+Before you begin, ensure you have the following installed:
 
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+- **Node.js** 18+ and npm
+- **Docker** and Docker Compose (for MongoDB)
+- **Git** for cloning the repository
+- **OpenSSL** for generating encryption keys
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  If you already have MongoDB running, you can skip Docker and point to your existing instance using the `MONGODB_URI` environment variable.
+</Note>
+
+## Installation Steps
+
+<Steps>
+  <Step title="Clone the Repository">
+    Clone the OmniEHR repository to your local machine:
+
+    ```bash
+    git clone https://github.com/yourusername/omniehr.git
+    cd omniehr
+    ```
+  </Step>
+
+  <Step title="Start MongoDB">
+    Use Docker Compose to start a local MongoDB instance:
+
+    ```bash
+    docker compose up -d
+    ```
+
+    This starts MongoDB 7 on `localhost:27017` with a database named `ehr`.
+
+    <Accordion title="Docker Compose Configuration">
+      The `docker-compose.yml` file includes:
+
+      ```yaml
+      services:
+        mongo:
+          image: mongo:7
+          restart: unless-stopped
+          ports:
+            - "27017:27017"
+          environment:
+            MONGO_INITDB_DATABASE: ehr
+          volumes:
+            - mongo_data:/data/db
+      ```
+
+      Data persists in the `mongo_data` Docker volume.
+    </Accordion>
+
+    Verify MongoDB is running:
+
+    ```bash
+    docker ps
+    ```
+
+    You should see the `mongo:7` container.
+  </Step>
+
+  <Step title="Install Dependencies">
+    Install all dependencies for both server and client:
+
+    ```bash
+    npm install
+    ```
+
+    This installs dependencies for the monorepo workspace, including:
+
+    **Server dependencies:**
+    - `express` - REST API framework
+    - `mongoose` - MongoDB ODM
+    - `jsonwebtoken` - JWT authentication
+    - `bcryptjs` - Password hashing
+    - `helmet` - Security headers
+    - `zod` - Input validation
+
+    **Client dependencies:**
+    - `react` & `react-dom` - UI framework
+    - `react-router-dom` - Client routing
+    - `vite` - Build tool
+  </Step>
+
+  <Step title="Configure Environment Variables">
+    Copy the example environment files:
+
+    ```bash
+    cp server/.env.example server/.env
+    cp client/.env.example client/.env
+    ```
+
+    ### Server Configuration
+
+    Edit `server/.env` with the following values:
+
+    <CodeGroup>
+      ```bash server/.env
+      NODE_ENV=development
+      PORT=4000
+      
+      # Database connection
+      MONGODB_URI=mongodb://127.0.0.1:27017/ehr
+      
+      # JWT authentication (generate a secure random string)
+      JWT_SECRET=your-secure-jwt-secret-here-make-it-long-and-random
+      JWT_EXPIRES_IN=8h
+      
+      # PHI encryption key (MUST be 64 hex characters - see below)
+      PHI_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      
+      # CORS origin for frontend
+      CORS_ORIGIN=http://localhost:5173
+      ```
+    </CodeGroup>
+
+    <Warning>
+      **Security Critical:** Generate a new `PHI_ENCRYPTION_KEY` before storing any real data!
+    </Warning>
+
+    Generate a secure 256-bit (32-byte) encryption key:
+
+    ```bash
+    openssl rand -hex 32
+    ```
+
+    This outputs a 64-character hex string. Copy it to `PHI_ENCRYPTION_KEY` in `server/.env`.
+
+    Example output:
+    ```
+    a7f8e9d0c1b2a3f4e5d6c7b8a9f0e1d2c3b4a5f6e7d8c9b0a1f2e3d4c5b6a7f8
+    ```
+
+    ### Client Configuration
+
+    Edit `client/.env`:
+
+    <CodeGroup>
+      ```bash client/.env
+      # API endpoint for local development
+      VITE_API_BASE_URL=http://localhost:4000/api
+      ```
+    </CodeGroup>
+
+    <Accordion title="Environment Variable Reference">
+      | Variable | Description | Required | Default |
+      |----------|-------------|----------|----------|
+      | `NODE_ENV` | Environment mode | Yes | `development` |
+      | `PORT` | Server port | Yes | `4000` |
+      | `MONGODB_URI` | MongoDB connection string | Yes | - |
+      | `JWT_SECRET` | Secret for signing JWTs | Yes | - |
+      | `JWT_EXPIRES_IN` | Token expiration time | Yes | `8h` |
+      | `PHI_ENCRYPTION_KEY` | 64-char hex key for AES-256-GCM | Yes | - |
+      | `CORS_ORIGIN` | Allowed frontend origin | No | - |
+      | `VITE_API_BASE_URL` | Backend API URL | Yes | - |
+    </Accordion>
+  </Step>
+
+  <Step title="Start the Application">
+    Run both server and client in development mode:
+
+    ```bash
+    npm run dev
+    ```
+
+    This starts:
+    - **API Server** at `http://localhost:4000`
+    - **Frontend UI** at `http://localhost:5173`
+
+    You can also run them separately:
+
+    <CodeGroup>
+      ```bash Server Only
+      npm run dev:server
+      ```
+
+      ```bash Client Only
+      npm run dev:client
+      ```
+    </CodeGroup>
+
+    <Note>
+      The server uses `nodemon` for hot-reloading. The client uses Vite's HMR for instant updates.
+    </Note>
+  </Step>
+
+  <Step title="Access the Application">
+    Open your browser and navigate to:
+
+    ```
+    http://localhost:5173
+    ```
+
+    You'll see the OmniEHR login page.
+  </Step>
+</Steps>
+
+## Demo Credentials
+
+OmniEHR includes demo accounts for testing different roles:
+
+<CardGroup cols={2}>
+  <Card title="Admin Account" icon="user-shield">
+    **Email:** `admin@omnihealth.com`
+    
+    **Password:** `Abcdefgh@998761`
+    
+    Full system access including user provisioning and patient management.
+  </Card>
+
+  <Card title="Practitioner Account" icon="user-doctor">
+    **Email:** `drsonal@omnihealth.com`
+    
+    **Password:** `Abcdefgh@998761`
+    
+    Clinical access with restrictions to own schedule and tasks.
+  </Card>
+</CardGroup>
+
+<Warning>
+  These demo credentials are for development only. Change or remove them before deploying to production.
+</Warning>
+
+## Verify Installation
+
+Test that everything is working correctly:
+
+### 1. Check API Health
+
+```bash
+curl http://localhost:4000/api/health
+```
+
+Expected response:
+```json
+{
+  "status": "ok",
+  "timestamp": "2026-03-04T..."
+}
+```
+
+### 2. Test Authentication
+
+```bash
+curl -X POST http://localhost:4000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "admin@omnihealth.com",
+    "password": "Abcdefgh@998761"
+  }'
+```
+
+You should receive a JWT token and user object.
+
+### 3. Check FHIR Metadata
+
+```bash
+curl http://localhost:4000/api/fhir/metadata \
+  -H "Authorization: Bearer YOUR_TOKEN_HERE"
+```
+
+This returns the FHIR CapabilityStatement showing supported resources:
+- Patient
+- Observation
+- Condition
+- AllergyIntolerance
+- MedicationRequest
+- Encounter
+- Appointment
+- Task
+
+## Next Steps
+
+Now that OmniEHR is running, explore these features:
+
+<CardGroup cols={2}>
+  <Card title="Create a Patient" icon="user-plus" href="/features/patient-management">
+    Register patients via admin interface or public portal
+  </Card>
+  <Card title="Schedule Appointments" icon="calendar" href="/features/scheduling">
+    Book appointments with conflict detection
+  </Card>
+  <Card title="Use FHIR APIs" icon="code" href="/api/overview">
+    Interact with RESTful FHIR endpoints
+  </Card>
+  <Card title="Review Audit Logs" icon="clipboard-list" href="/features/audit-logs">
+    Monitor system access and changes
+  </Card>
+</CardGroup>
+
+## Common Issues
+
+<AccordionGroup>
+  <Accordion title="MongoDB Connection Failed">
+    **Error:** `MongooseServerSelectionError: connect ECONNREFUSED 127.0.0.1:27017`
+
+    **Solution:**
+    1. Verify MongoDB is running: `docker ps`
+    2. Check MongoDB logs: `docker logs [container_id]`
+    3. Ensure `MONGODB_URI` in `server/.env` matches your setup
+  </Accordion>
+
+  <Accordion title="Invalid PHI_ENCRYPTION_KEY">
+    **Error:** `PHI_ENCRYPTION_KEY must be a 64-char hex string (32 bytes)`
+
+    **Solution:**
+    Generate a new key with exactly 64 hex characters:
+    ```bash
+    openssl rand -hex 32
+    ```
+    Update `PHI_ENCRYPTION_KEY` in `server/.env`
+  </Accordion>
+
+  <Accordion title="CORS Errors in Browser">
+    **Error:** `Access to fetch at 'http://localhost:4000/api/...' has been blocked by CORS policy`
+
+    **Solution:**
+    1. Ensure `CORS_ORIGIN=http://localhost:5173` in `server/.env`
+    2. Restart the server: `npm run dev:server`
+    3. Verify client is running on port 5173
+  </Accordion>
+
+  <Accordion title="Port Already in Use">
+    **Error:** `Error: listen EADDRINUSE: address already in use :::4000`
+
+    **Solution:**
+    1. Find process using port: `lsof -i :4000` (macOS/Linux) or `netstat -ano | findstr :4000` (Windows)
+    2. Kill the process or change `PORT` in `server/.env`
+  </Accordion>
+</AccordionGroup>
+
+## Development Workflow
+
+### Running Tests
+
+```bash
+# Lint code
+npm run lint
+
+# Build client for production
+npm run build --workspace client
+```
+
+### Project Structure
+
+```
+omniehr/
+├── server/              # Backend API
+│   ├── src/
+│   │   ├── models/      # Mongoose schemas (Patient, User, etc.)
+│   │   ├── routes/      # Express routes (FHIR, auth, admin)
+│   │   ├── services/    # Business logic (encryption, validation)
+│   │   ├── middleware/  # Auth, audit, error handling
+│   │   └── config/      # Environment and database config
+│   └── package.json
+├── client/              # React frontend
+│   ├── src/
+│   │   ├── pages/       # Page components
+│   │   ├── components/  # Reusable UI components
+│   │   ├── context/     # React context (AuthContext)
+│   │   └── api.js       # API client
+│   └── package.json
+├── docker-compose.yml   # MongoDB container
+└── package.json         # Workspace root
+```
+
+## Production Deployment
+
+<Warning>
+  Before deploying to production:
+  1. Generate new `JWT_SECRET` and `PHI_ENCRYPTION_KEY`
+  2. Use managed MongoDB with backups (MongoDB Atlas, etc.)
+  3. Enable TLS/HTTPS for all connections
+  4. Remove or change demo credentials
+  5. Set `NODE_ENV=production`
+  6. Configure rate limiting and monitoring
+  7. Review security hardening recommendations
+</Warning>
+
+Recommended production enhancements:
+- Multi-factor authentication (MFA)
+- Token refresh and revocation
+- Immutable audit log storage (WORM)
+- SIEM integration for monitoring
+- Automated security scanning
+- Penetration testing
+- Business Associate Agreements (BAAs)
+
+## Getting Help
+
+Need assistance?
+
+- Check the [API Reference](/api/overview) for endpoint documentation
+- Review [Security Best Practices](/security/hipaa-overview)
+- Open an issue on [GitHub](https://github.com/yourusername/omniehr)
+- Join our community discussions
+
+<Note>
+  Remember: HIPAA compliance requires organizational policies, procedures, training, and risk management beyond these technical controls.
 </Note>

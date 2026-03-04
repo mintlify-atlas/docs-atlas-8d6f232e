@@ -1,0 +1,167 @@
+---
+title: Introduction to OmniEHR
+description: FHIR R4-compatible Electronic Health Record system with HIPAA-aligned security controls
+---
+
+# Welcome to OmniEHR
+
+OmniEHR is a comprehensive Electronic Health Record (EHR) application built with FHIR R4-shaped APIs and HIPAA-aligned technical controls. It provides a complete clinical workflow solution for healthcare organizations, from patient registration to care coordination.
+
+## What is OmniEHR?
+
+OmniEHR is a full-stack EHR system that combines modern web technologies with healthcare interoperability standards. The platform implements FHIR R4 resource patterns and incorporates robust security measures to protect Protected Health Information (PHI).
+
+<Note>
+  Access the live demo at [https://omni-ehr.vercel.app](https://omni-ehr.vercel.app)
+</Note>
+
+## Key Features
+
+### Clinical Workflow Management
+
+<AccordionGroup>
+  <Accordion title="Patient Management">
+    - **Patient Registry** with encrypted demographics and automatic 7-digit PID assignment
+    - **Patient Portal** (`/patient-register`) for self-service registration
+    - **Longitudinal Chart View** (`Patient/$everything`) showing complete patient history
+    - At-rest AES-256-GCM encryption for all PHI fields (name, contact, address)
+  </Accordion>
+
+  <Accordion title="Clinical Documentation">
+    - **Problem List** (`Condition`) for active diagnoses and medical conditions
+    - **Allergies** (`AllergyIntolerance`) tracking with severity levels
+    - **Medications** (`MedicationRequest`) for prescription management
+    - **Encounters** (`Encounter`) for visit documentation
+    - **Observations** (`Observation`) for vitals and clinical measurements
+  </Accordion>
+
+  <Accordion title="Care Coordination">
+    - **Appointment Scheduling** with conflict detection and availability management
+    - **Task Management** (`Task`) for care team coordination with assignment and status workflow
+    - **Clinical Command Center** for risk stratification and care-gap detection
+    - Fixed booking windows: Monday-Saturday, 09:00 AM-12:00 PM in 15-minute slots
+  </Accordion>
+</AccordionGroup>
+
+### FHIR R4 Compliance
+
+OmniEHR implements FHIR R4 resource patterns for standardized healthcare data exchange:
+
+- **Patient** - Demographics and identifiers
+- **Observation** - Clinical measurements and vitals
+- **Condition** - Problems and diagnoses
+- **AllergyIntolerance** - Allergies and adverse reactions
+- **MedicationRequest** - Prescriptions and medication orders
+- **Encounter** - Patient visits and episodes of care
+- **Appointment** - Scheduled healthcare services
+- **Task** - Care team workflow items
+
+All resources support full CRUD operations (Create, Read, Update, search-type) via RESTful APIs at `/api/fhir`.
+
+### Security & Compliance
+
+<Warning>
+  While OmniEHR implements major technical safeguards, HIPAA compliance requires more than code. Real compliance includes Business Associate Agreements (BAAs), policies/procedures, risk assessments, incident response plans, and staff training.
+</Warning>
+
+OmniEHR includes the following HIPAA-aligned technical controls:
+
+#### Access Control
+- **JWT Authentication** with bearer tokens (8-hour default expiration)
+- **Role-Based Access Control (RBAC)** with three roles:
+  - `admin` - Full system access, user provisioning, patient creation
+  - `practitioner` - Clinical access, limited to own schedule/tasks
+  - `auditor` - Read-only access to audit logs
+- **Rate Limiting** on authentication endpoints
+
+#### Data Encryption
+- **AES-256-GCM** field-level encryption for PHI (names, phone, email, addresses)
+- Encryption uses 64-character hex key (`PHI_ENCRYPTION_KEY`)
+- Each encrypted field includes IV, auth tag, and encrypted content
+
+#### Audit Controls
+- Automatic audit logging for all `/api/fhir/*` and `/api/admin/*` operations
+- Tracks actor, action, resource type, outcome, and timestamps
+- Admin/auditor roles can review with pagination and filtering
+
+#### Security Hardening
+- **Helmet.js** for HTTP security headers
+- **CORS** configuration with explicit origin control
+- **Zod validation** for strict input validation
+- **bcrypt** password hashing (12 rounds)
+- No passwords in responses or logs
+
+## Technology Stack
+
+### Backend
+```javascript
+// Core dependencies from server/package.json
+{
+  "express": "^4.19.2",
+  "mongoose": "^8.5.1",
+  "jsonwebtoken": "^9.0.2",
+  "bcryptjs": "^2.4.3",
+  "helmet": "^7.1.0",
+  "cors": "^2.8.5",
+  "zod": "^3.23.8"
+}
+```
+
+- **Node.js** with Express for REST API
+- **MongoDB** with Mongoose ODM for data persistence
+- **JWT** for stateless authentication
+- **Native crypto** module for AES-256-GCM encryption
+
+### Frontend
+```javascript
+// Core dependencies from client/package.json
+{
+  "react": "^18.3.1",
+  "react-router-dom": "^6.26.1",
+  "vite": "^5.4.2"
+}
+```
+
+- **React 18** for UI components
+- **Vite** for fast development and optimized builds
+- **React Router** for client-side routing
+
+## Who Is OmniEHR For?
+
+### Healthcare Providers
+- Small to medium clinics needing FHIR-compatible EHR
+- Organizations building custom healthcare applications
+- Practices requiring HIPAA-aligned technical controls
+
+### Developers
+- Teams learning FHIR R4 implementation patterns
+- Developers building healthcare integrations
+- Engineers studying PHI encryption and audit logging
+
+### Healthcare IT Leaders
+- Decision-makers evaluating EHR architectures
+- Technical leads designing secure healthcare systems
+- Compliance officers reviewing technical safeguards
+
+<Note>
+  OmniEHR is designed as a reference implementation. Production deployments should add MFA, token revocation, consent management, immutable audit logs, formal testing, and security scanning.
+</Note>
+
+## Next Steps
+
+Ready to get started?
+
+<CardGroup cols={2}>
+  <Card title="Quickstart Guide" icon="rocket" href="/quickstart">
+    Set up OmniEHR locally in minutes
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/overview">
+    Explore FHIR R4 endpoints
+  </Card>
+  <Card title="Authentication" icon="lock" href="/api/authentication">
+    Learn about JWT auth and RBAC
+  </Card>
+  <Card title="Security" icon="shield" href="/security/hipaa-overview">
+    Understand encryption and audit controls
+  </Card>
+</CardGroup>
